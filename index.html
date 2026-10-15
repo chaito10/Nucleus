@@ -7,7 +7,7 @@
 <style>
 /* ============ SECTION 1: TOKENS / THEMES ============ */
 :root{
-  --accent:#4f8cff; --taskbar-h:48px;
+  --accent:#4f8cff; --taskbar-h:56px; --tb-reserve:64px; --launch-bottom:76px; --title-h:34px; --dot:14px;
   --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
   --win-bg:rgba(22,30,46,.96); --win-border:rgba(255,255,255,.12);
   --bar-bg:rgba(12,18,32,.92); --hover:rgba(255,255,255,.1);
@@ -20,6 +20,11 @@ html[data-theme="light"]{
 }
 html[data-density="compact"]{ --font:12px; --pad:8px; }
 html[data-density="comfortable"]{ --font:14px; --pad:14px; }
+html[data-titlesize="slim"]{ --title-h:26px; --dot:11px; }
+html[data-titlesize="slim"] .t-title{font-size:12px}
+html[data-titlesize="large"]{ --title-h:46px; --dot:18px; }
+html[data-titlesize="large"] .t-title{font-size:15px}
+html[data-tb="collapsed"]{ --tb-reserve:0px; --launch-bottom:60px; }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
 body{
@@ -31,64 +36,108 @@ button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
 /* ============ SECTION 2: DESKTOP / WALLPAPER ============ */
-#desktop{position:fixed;inset:0 0 var(--taskbar-h) 0;overflow:hidden}
+#desktop{position:fixed;inset:0 0 var(--tb-reserve) 0;overflow:hidden}
 #wallpaper{position:absolute;inset:0;background:linear-gradient(135deg,#1a2340,#0b3b66 55%,#0e7a6d)}
 #wallpaper .img{position:absolute;inset:0;background-repeat:no-repeat}
 #wallpaper .dim{position:absolute;inset:0;background:#000;opacity:.25;pointer-events:none}
-#shortcuts{position:absolute;top:14px;left:14px;display:grid;gap:4px;z-index:1}
-.shortcut{width:88px;padding:10px 6px;border:0;background:transparent;color:#fff;
+#shortcuts{position:absolute;inset:14px;z-index:1}
+#shortcuts.free .shortcut{position:absolute;margin:0}
+.shortcut{touch-action:none;cursor:pointer;width:88px;padding:10px 6px;border:0;background:transparent;color:#fff;
   display:flex;flex-direction:column;align-items:center;gap:6px;border-radius:10px;text-shadow:0 1px 4px #000}
 html[data-theme="light"] .shortcut{color:#10203a;text-shadow:0 1px 0 #fff}
 .shortcut:hover,.shortcut:focus-visible{background:rgba(127,140,160,.35)}
-.shortcut svg{width:32px;height:32px}
+.shortcut svg{width:36px;height:36px}
 .shortcut span{font-size:12px;text-align:center;line-height:1.2}
-#windows{position:absolute;inset:0;z-index:5}
+#windows{position:absolute;inset:0;z-index:5;pointer-events:none}
 /* ============ SECTION 3: WINDOWS ============ */
-.win{position:absolute;min-width:280px;min-height:180px;width:560px;height:380px;max-width:100%;max-height:100%;
-  background:var(--win-bg);border:1px solid var(--win-border);border-radius:var(--radius);
-  display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.45);overflow:hidden}
+.win{pointer-events:auto;position:absolute;min-width:280px;min-height:180px;width:560px;height:380px;max-width:100%;max-height:100%;
+  background:var(--win-bg);border:1px solid var(--win-border);border-radius:14px;
+  display:flex;flex-direction:column;box-shadow:0 24px 70px rgba(0,0,0,.5);overflow:hidden}
 .win.active{border-color:var(--accent);box-shadow:0 12px 48px rgba(0,0,0,.55),0 0 0 1px var(--accent)}
 .win.minimized{display:none}
 .win.maximized{inset:0!important;width:auto!important;height:auto!important;border-radius:0}
-.titlebar{display:flex;align-items:center;gap:8px;padding:7px 8px 7px 12px;cursor:grab;flex:none;touch-action:none}
+.titlebar{display:flex;align-items:center;gap:8px;height:var(--title-h);padding:0 8px 0 12px;cursor:grab;flex:none;touch-action:none}
 .titlebar:active{cursor:grabbing}
 .titlebar .t-icon{width:18px;height:18px;flex:none}
-.titlebar .t-title{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
-.t-btns{display:flex;gap:4px}
-.t-btns button{border:0;background:transparent;width:32px;height:26px;border-radius:6px;font-size:13px;line-height:1}
-.t-btns button:hover{background:var(--hover)}
-.t-btns .close:hover{background:#d64545;color:#fff}
+.titlebar .t-title{flex:1;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.t-btns{display:flex;gap:8px;order:-1;margin-right:6px}
+.t-btns button{border:1px solid rgba(0,0,0,.18);width:var(--dot);height:var(--dot);border-radius:50%;
+  font-size:9px;line-height:1;padding:0;color:transparent;background:var(--hover)}
+.t-btns button:hover{filter:brightness(1.1)}
+.t-btns .close{background:#ff5f57}
+.t-btns .minb{background:#febc2e}
+.t-btns .maxb{background:#28c840}
+.titlebar:hover .t-btns button,.t-btns button:focus-visible{color:rgba(0,0,0,.6)}
 .win-body{flex:1;overflow:auto;padding:var(--pad);user-select:text;min-height:0}
 .resize{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;
   background:linear-gradient(135deg,transparent 50%,var(--muted) 50%);opacity:.7;border-end-end-radius:var(--radius)}
+/* ---- extra window chrome ---- */
+.win-body.flush{padding:0;overflow:hidden;display:flex}
+.webframe{flex:1;width:100%;height:100%;border:0;display:block;background:#fff}
+.win:not(.active) iframe{pointer-events:none}
+body.dragging iframe{pointer-events:none!important}
+.t-acts{display:flex;gap:2px;margin-left:4px}
+.t-act{border:0;background:transparent;color:var(--muted);border-radius:7px;
+  width:calc(var(--title-h) - 8px);height:calc(var(--title-h) - 8px);padding:0;line-height:1}
+.t-act:hover{background:var(--hover);color:var(--fg)}
+.rz-r{position:absolute;top:0;right:0;bottom:18px;width:6px;cursor:ew-resize;z-index:2}
+.rz-b{position:absolute;left:0;bottom:0;right:18px;height:6px;cursor:ns-resize;z-index:2}
+.resize{z-index:3}
+.win.webwin .resize{background:none}
+.win.maximized .resize,.win.maximized .rz-r,.win.maximized .rz-b{display:none}
+.tile{display:inline-grid;place-items:center;border-radius:8px;font-weight:700;color:#fff;flex:none;line-height:1}
+/* context menu */
+.ctx{position:fixed;z-index:4000;min-width:190px;background:var(--win-bg);border:1px solid var(--win-border);
+  border-radius:10px;padding:5px;box-shadow:0 12px 36px rgba(0,0,0,.5);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.ctx button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:8px 10px;border-radius:7px;color:var(--fg)}
+.ctx button:hover,.ctx button:focus-visible{background:var(--hover)}
+.ctx hr{border:0;border-top:1px solid var(--win-border);margin:4px 2px}
 /* ============ SECTION 4: TASKBAR ============ */
-#taskbar{position:fixed;left:0;right:0;bottom:0;height:var(--taskbar-h);z-index:1000;
-  background:var(--bar-bg);backdrop-filter:blur(12px);border-top:1px solid var(--win-border);
-  display:flex;align-items:center;gap:6px;padding:0 10px}
-#launcherBtn{border:1px solid var(--win-border);background:var(--hover);border-radius:9px;
-  height:34px;min-width:44px;font-size:18px}
-.tb-apps{display:flex;gap:4px;flex:1;overflow-x:auto;align-items:center}
-.tb-btn{border:0;background:transparent;border-radius:8px;height:36px;padding:4px 10px;
-  display:flex;align-items:center;gap:7px;white-space:nowrap;position:relative;color:var(--fg)}
+#taskbar{position:fixed;left:50%;transform:translateX(-50%);bottom:8px;height:var(--taskbar-h);z-index:1000;
+  max-width:96vw;width:max-content;
+  background:var(--bar-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid var(--win-border);border-radius:20px;box-shadow:0 10px 32px rgba(0,0,0,.4);
+  display:flex;align-items:center;gap:6px;padding:4px 10px;transition:transform .2s ease,opacity .2s ease}
+html[data-tb="collapsed"] #taskbar{transform:translate(-50%,170%);opacity:0;pointer-events:none}
+#tbMini{position:fixed;left:50%;transform:translateX(-50%);bottom:8px;z-index:1000;display:none;align-items:center;gap:4px;padding:3px 6px;
+  background:var(--bar-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid var(--win-border);border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+html[data-tb="collapsed"] #tbMini{display:flex}
+#launcherBtn,#miniLauncher{border:1px solid var(--win-border);background:var(--hover);border-radius:10px;
+  height:36px;min-width:40px;font-size:18px;line-height:1}
+#tbExpand,#tbCollapse{border:0;background:transparent;border-radius:8px;width:28px;height:30px;color:var(--muted)}
+#tbExpand:hover,#tbCollapse:hover{background:var(--hover);color:var(--fg)}
+.tb-apps{display:flex;gap:2px;align-items:center}
+#taskBar{flex:0 1 auto;max-width:62vw;overflow-x:auto;min-width:0;scrollbar-width:none}
+#taskBar::-webkit-scrollbar{display:none}
+.tb-sep{width:1px;height:24px;background:var(--win-border);margin:0 4px;flex:none}
+.tb-btn{border:0;background:transparent;border-radius:10px;height:40px;min-width:40px;padding:0 8px;
+  display:flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap;position:relative;color:var(--fg);flex:none}
 .tb-btn:hover{background:var(--hover)}
-.tb-btn.running::after{content:"";position:absolute;bottom:2px;left:30%;right:30%;height:3px;border-radius:2px;background:var(--accent)}
-.tb-btn.minDim{opacity:.6}
-.tb-btn svg{width:18px;height:18px}
-.tb-right{display:flex;align-items:center;gap:8px}
-#clock{text-align:right;line-height:1.15;font-size:12px;min-width:64px}
-.trayBtn{border:1px solid var(--win-border);background:transparent;border-radius:8px;height:30px;min-width:32px}
-/* launcher */
-#launcher{position:fixed;left:10px;bottom:calc(var(--taskbar-h) + 10px);z-index:1200;width:min(420px,92vw);
-  max-height:60vh;background:var(--win-bg);border:1px solid var(--win-border);border-radius:14px;
-  display:none;flex-direction:column;box-shadow:0 16px 50px rgba(0,0,0,.5)}
+.tb-btn.running::after{content:"";position:absolute;bottom:3px;left:42%;right:42%;height:3px;border-radius:2px;background:var(--muted)}
+.tb-btn.active::after{left:28%;right:28%;background:var(--accent)}
+.tb-btn.allmin{opacity:.6}
+.tb-btn .badge{position:absolute;top:2px;right:2px;min-width:14px;height:14px;border-radius:7px;background:var(--accent);
+  color:#fff;font-size:9px;display:grid;place-items:center;padding:0 3px}
+.tb-right{display:flex;align-items:center;gap:2px}
+#trayBtn{border:0;background:transparent;border-radius:10px;height:40px;padding:0 8px;color:var(--fg)}
+#trayBtn:hover{background:var(--hover)}
+#clock{display:block;text-align:right;line-height:1.15;font-size:12px;min-width:56px;white-space:pre}
+/* app drawer */
+#launcher{position:fixed;left:50%;transform:translateX(-50%);bottom:var(--launch-bottom);z-index:1200;width:min(680px,94vw);
+  max-height:min(72vh,560px);background:var(--win-bg);border:1px solid var(--win-border);border-radius:16px;
+  display:none;flex-direction:column;box-shadow:0 16px 50px rgba(0,0,0,.5);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
 #launcher.open{display:flex}
-#launcher input{margin:10px;border-radius:8px;border:1px solid var(--win-border);padding:8px;background:transparent;color:var(--fg)}
-#launcherList{overflow:auto;padding:6px;display:grid;gap:2px}
-.l-item{display:flex;align-items:center;gap:10px;border:0;background:transparent;text-align:left;
-  padding:9px;border-radius:9px;color:var(--fg)}
-.l-item:hover{background:var(--hover)}
-.l-item svg{width:22px;height:22px}
-.l-item small{color:var(--muted)}
+#launcher input{margin:12px;border-radius:10px;border:1px solid var(--win-border);padding:9px 11px;background:transparent;color:var(--fg)}
+#launcherList{overflow:auto;padding:0 12px 14px}
+.dr-head{margin:10px 4px 4px;color:var(--muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+.dr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:4px}
+.dr-item{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 4px;border:0;
+  background:transparent;border-radius:12px;color:var(--fg);text-align:center}
+.dr-item:hover{background:var(--hover)}
+.dr-item .n{font-size:12px;line-height:1.2;max-width:84px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
+.dr-item .dot{position:absolute;top:8px;right:20px;width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.dr-more{display:block;margin:12px 4px 0;width:calc(100% - 8px)}
 /* overlays */
 .overlay{position:fixed;inset:0;z-index:3000;display:none;align-items:center;justify-content:center;
   background:rgba(0,0,0,.55);backdrop-filter:blur(6px);text-align:center;padding:20px}
@@ -144,21 +193,24 @@ iframe.bview{width:100%;height:270px;border:1px solid var(--win-border);border-r
 <!-- ============ SECTION 6: SHELL HTML ============ -->
 <div id="desktop" role="application" aria-label="Nucleus desktop">
   <div id="wallpaper" aria-hidden="true"><div class="img" id="wpImg"></div><div class="dim" id="wpDim"></div></div>
-  <div id="shortcuts" role="toolbar" aria-label="Desktop shortcuts"></div>
+  <div id="shortcuts" class="free" role="toolbar" aria-label="Desktop shortcuts"></div>
   <div id="windows"></div>
 </div>
 <nav id="taskbar" aria-label="Taskbar">
-  <button id="launcherBtn" aria-label="Open launcher" aria-haspopup="true" title="Launcher">◈</button>
-  <div class="tb-apps" id="pinnedBar" role="toolbar" aria-label="Pinned apps"></div>
-  <div class="tb-apps" id="taskBar" role="toolbar" aria-label="Running apps" style="flex:2"></div>
+  <button id="launcherBtn" aria-label="Open app drawer" aria-haspopup="true" title="App drawer">⊞</button>
+  <div class="tb-apps" id="taskBar" role="toolbar" aria-label="Pinned and running apps"></div>
+  <div class="tb-sep" aria-hidden="true"></div>
   <div class="tb-right">
-    <button class="trayBtn" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">◐</button>
-    <button class="trayBtn" id="powerBtn" title="Power menu" aria-label="Power menu">⏻</button>
-    <div id="clock" aria-live="off" title="Clock"></div>
+    <button id="trayBtn" aria-haspopup="menu" title="Quick menu" aria-label="Quick menu"><span id="clock" aria-live="off"></span></button>
+    <button id="tbCollapse" title="Collapse taskbar" aria-label="Collapse taskbar">▾</button>
   </div>
 </nav>
+<div id="tbMini" role="toolbar" aria-label="Collapsed taskbar">
+  <button id="miniLauncher" aria-label="Open app drawer" title="App drawer">⊞</button>
+  <button id="tbExpand" title="Show taskbar" aria-label="Show taskbar">▴</button>
+</div>
 <div id="launcher" role="dialog" aria-label="App launcher">
-  <input id="launcherSearch" type="search" placeholder="Type to search apps…" aria-label="Search apps">
+  <input id="launcherSearch" type="search" placeholder="Search all apps…" aria-label="Search apps">
   <div id="launcherList" role="listbox" aria-label="Apps"></div>
 </div>
 <div class="overlay" id="lockScreen" role="dialog" aria-label="Locked">
@@ -169,7 +221,8 @@ iframe.bview{width:100%;height:270px;border:1px solid var(--win-border);border-r
 </div>
 <div class="overlay" id="offScreen" role="dialog" aria-label="Shut down">
   <div class="card"><h2>Nucleus is off (simulated)</h2>
-    <p class="muted">The simulated desktop is shut down. Your computer is unaffected.</p>
+    <p class="muted">The browser blocked automatic tab close, so this screen is shown instead. Your computer is unaffected — close this tab yourself to finish shutting down.</p>
+    <button id="closeTabBtn" class="btn">Close this tab</button>
     <button id="bootBtn" class="btn primary">Power on Nucleus</button></div>
 </div>
 <div class="overlay" id="powerMenu" role="dialog" aria-label="Power menu">
@@ -210,6 +263,7 @@ const ICONS={
   wallpaper:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M3 17l5-4 4 3 4-4 5 5"/>',
   tasks:'<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12h8M8 8h8M8 16h5"/>',
   calc:'<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01M8 20h.01M12 20h.01M16 20h.01"/>',
+  store:'<path d="M6 8h15l-1.5 12a1 1 0 01-1 .8H7.5a1 1 0 01-1-.8z"/><path d="M9 10V6a3 3 0 016 0v4"/>',
   power:'<path d="M12 3v9M6 6a8 8 0 1012 0"/>'};
 /* ---------- B. storage (IndexedDB + guarded localStorage) ---------- */
 const mem={};
@@ -241,14 +295,17 @@ function idbGet(store,key){return new Promise(res=>{
   try{const t=idb.transaction(store,"readonly");const q=t.objectStore(store).get(key);q.onsuccess=()=>fin(q.result);q.onerror=()=>fin(undefined);}
   catch{fin(undefined);}});}
 /* ---------- C. settings ---------- */
-const settings=Object.assign({theme:"dark",accent:"#4f8cff",clock24:false,showDate:true,density:"default",showShortcuts:true,showLabels:false},ls.get("settings",{}));
+const settings=Object.assign({theme:"dark",accent:"#4f8cff",clock24:false,showDate:true,density:"default",showShortcuts:true,showLabels:false,tbCollapsed:false,titleSize:"default"},ls.get("settings",{}));
 function applySettings(){
   document.documentElement.dataset.theme=(settings.theme==="system")
     ?(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"):settings.theme;
   document.documentElement.style.setProperty("--accent",settings.accent);
   document.documentElement.dataset.density=settings.density==="default"?"":settings.density;
   document.documentElement.dataset.showShortcuts=settings.showShortcuts?"1":"0";
-  $("#shortcuts").style.display=settings.showShortcuts?"grid":"none";
+  $("#shortcuts").style.display=settings.showShortcuts?"block":"none";
+  document.documentElement.dataset.tb=settings.tbCollapsed?"collapsed":"";
+  document.documentElement.dataset.titlesize=settings.titleSize==="default"?"":settings.titleSize;
+  try{clampShortcuts();}catch{}
   ls.set("settings",settings);tickClock();
 }
 /* ---------- D. wallpaper ---------- */
@@ -320,26 +377,30 @@ const wins=new Map();let zTop=10,activeId=null,winSeq=0;
 const APPS={};
 function openApp(id,arg){
   const def=APPS[id];if(!def)return;
-  for(const[w]of wins)if(w.app===id&&def.singleton){focusWin(w.id);return;}
+  for(const x of wins.values())if(x.app===id&&def.singleton&&!arg){focusWin(x.id);return x.id;}
+  const isWeb=id==="webapp"&&arg&&arg.id;
+  const title=(arg&&arg.title)||def.title;
   const wid="w"+(++winSeq);
-  const wEl=mk("section",{class:"win",role:"dialog","aria-label":def.title,tabindex:"-1"});
+  const wEl=mk("section",{class:"win",role:"dialog","aria-label":title,tabindex:"-1"});
   const n=wins.size,off=(n%6)*28;
   const dw=$("#desktop").clientWidth,dh=$("#desktop").clientHeight;
   const W=Math.min(def.w||560,dw-16),H=Math.min(def.h||380,dh-16);
   wEl.style.width=W+"px";wEl.style.height=H+"px";
   wEl.style.left=Math.max(8,(dw-W)/2+off-60)+"px";wEl.style.top=Math.max(8,(dh-H)/2+off-40)+"px";
   const tb=mk("div",{class:"titlebar"});
-  const ic=svgIcon(ICONS[def.icon]||ICONS.tasks);ic.setAttribute("class","t-icon");tb.appendChild(ic);
-  tb.appendChild(mk("span",{class:"t-title"},def.title));
+  const ic=isWeb?tileEl(title,18):svgIcon(ICONS[def.icon]||ICONS.tasks);ic.setAttribute("class",(isWeb?"tile ":"")+"t-icon");tb.appendChild(ic);
+  tb.appendChild(mk("span",{class:"t-title"},title));
   const btns=mk("div",{class:"t-btns"});
-  const bMin=mk("button",{title:"Minimize","aria-label":"Minimize "+def.title},"\u2013");
-  const bMax=mk("button",{title:"Maximize or restore","aria-label":"Maximize or restore"},"▢");
-  const bX=mk("button",{class:"close",title:"Close","aria-label":"Close "+def.title},"✕");
-  btns.append(bMin,bMax,bX);tb.appendChild(btns);wEl.appendChild(tb);
+  const bX=mk("button",{class:"close",title:"Close","aria-label":"Close "+title},"✕");
+  const bMin=mk("button",{class:"minb",title:"Minimize","aria-label":"Minimize "+title},"–");
+  const bMax=mk("button",{class:"maxb",title:"Maximize or restore","aria-label":"Maximize or restore"},"+");
+  btns.append(bX,bMin,bMax);tb.appendChild(btns);wEl.appendChild(tb);
   const body=mk("div",{class:"win-body"});wEl.appendChild(body);
-  const rz=mk("div",{class:"resize",title:"Resize","aria-hidden":"true"});wEl.appendChild(rz);
+  const rz=mk("div",{class:"resize",title:"Resize","aria-hidden":"true"});
+  const rzR=mk("div",{class:"rz-r","aria-hidden":"true"}),rzB=mk("div",{class:"rz-b","aria-hidden":"true"});
+  wEl.append(rz,rzR,rzB);
   $("#windows").appendChild(wEl);
-  const w={id:wid,app:id,title:def.title,el:wEl,body,min:false,max:false,opened:Date.now(),cleanups:[],onClose:null};
+  const w={id:wid,app:id,key:isWeb?"web:"+arg.id:id,webId:isWeb?arg.id:null,title,el:wEl,body,min:false,max:false,opened:Date.now(),cleanups:[],onClose:null};
   wins.set(wid,w);
   bMin.onclick=e=>{e.stopPropagation();minWin(wid);};
   bMax.onclick=e=>{e.stopPropagation();toggleMax(wid);};
@@ -347,55 +408,77 @@ function openApp(id,arg){
   tb.addEventListener("dblclick",e=>{if(!e.target.closest("button"))toggleMax(wid);});
   tb.addEventListener("pointerdown",e=>{if(e.target.closest("button"))return;startDrag(e,wid);});
   wEl.addEventListener("pointerdown",()=>focusWin(wid),true);
-  rz.addEventListener("pointerdown",e=>startResize(e,wid));
+  rz.addEventListener("pointerdown",e=>startResize(e,wid,"br"));
+  rzR.addEventListener("pointerdown",e=>startResize(e,wid,"r"));
+  rzB.addEventListener("pointerdown",e=>startResize(e,wid,"b"));
   try{def.render(body,w,arg);}catch(err){body.appendChild(mk("p",{},"Failed to open: "+err.message));}
-  focusWin(wid);renderTasks();return wid;
+  focusWin(wid);renderTasks();setMenuApp(title);return wid;
 }
 function focusWin(id){const w=wins.get(id);if(!w)return;w.min=false;w.el.classList.remove("minimized");
-  activeId=id;w.el.style.zIndex=++zTop;$$(".win").forEach(e=>e.classList.remove("active"));w.el.classList.add("active");renderTasks();}
+  activeId=id;w.el.style.zIndex=++zTop;$$(".win").forEach(e=>e.classList.remove("active"));w.el.classList.add("active");renderTasks();setMenuApp(w.title);}
 function minWin(id){const w=wins.get(id);if(!w)return;w.min=true;w.el.classList.add("minimized");
-  if(activeId===id){activeId=null;const rest=[...wins.values()].filter(x=>!x.min);if(rest.length)focusWin(rest[rest.length-1].id);}renderTasks();}
+  if(activeId===id){activeId=null;const rest=[...wins.values()].filter(x=>!x.min);if(rest.length)focusWin(rest[rest.length-1].id);else setMenuApp("Nucleus");}renderTasks();}
 function toggleMax(id){const w=wins.get(id);if(!w)return;w.max=!w.max;w.el.classList.toggle("maximized",w.max);focusWin(id);}
 function closeWin(id){const w=wins.get(id);if(!w)return;
   try{if(w.onClose)w.onClose();}catch{}
   w.cleanups.forEach(fn=>{try{fn();}catch{}});
   w.el.remove();wins.delete(id);
-  if(activeId===id)activeId=null;renderTasks();}
+  if(activeId===id)activeId=null;
+  const rest=[...wins.values()].filter(x=>!x.min);
+  setMenuApp(rest.length?(wins.get(activeId)||rest[rest.length-1]).title:"Nucleus");
+  renderTasks();}
 function every(min){return min*60000;}
 function startDrag(e,id){const w=wins.get(id);if(!w||w.max)return;focusWin(id);
   const r=w.el.getBoundingClientRect(),d=$("#desktop").getBoundingClientRect();
-  const ox=e.clientX-r.left,oy=e.clientY-r.top;document.body.style.userSelect="none";
+  const ox=e.clientX-r.left,oy=e.clientY-r.top;document.body.style.userSelect="none";document.body.classList.add("dragging");
   const mv=ev=>{let x=ev.clientX-d.left-ox,y=ev.clientY-d.top-oy;
     x=Math.max(-r.width+80,Math.min(d.width-80,x));y=Math.max(0,Math.min(d.height-30,y));
     w.el.style.left=x+"px";w.el.style.top=y+"px";};
-  const up=()=>{document.body.style.userSelect="";removeEventListener("pointermove",mv);removeEventListener("pointerup",up);};
-  addEventListener("pointermove",mv);addEventListener("pointerup",up);e.preventDefault();}
-function startResize(e,id){const w=wins.get(id);if(!w||w.max)return;focusWin(id);e.stopPropagation();e.preventDefault();
+  const up=()=>{document.body.style.userSelect="";document.body.classList.remove("dragging");removeEventListener("pointermove",mv);removeEventListener("pointerup",up);removeEventListener("pointercancel",up);};
+  addEventListener("pointermove",mv);addEventListener("pointerup",up);addEventListener("pointercancel",up);e.preventDefault();}
+function startResize(e,id,mode){mode=mode||"br";const w=wins.get(id);if(!w||w.max)return;focusWin(id);e.stopPropagation();e.preventDefault();
   const r=w.el.getBoundingClientRect(),sx=e.clientX,sy=e.clientY,sw=r.width,sh=r.height;
-  const mv=ev=>{w.el.style.width=Math.max(280,sw+ev.clientX-sx)+"px";w.el.style.height=Math.max(180,sh+ev.clientY-sy)+"px";};
-  const up=()=>{removeEventListener("pointermove",mv);removeEventListener("pointerup",up);};
-  addEventListener("pointermove",mv);addEventListener("pointerup",up);}
+  document.body.classList.add("dragging");
+  const mv=ev=>{if(mode.includes("r"))w.el.style.width=Math.max(280,sw+ev.clientX-sx)+"px";
+    if(mode.includes("b"))w.el.style.height=Math.max(180,sh+ev.clientY-sy)+"px";};
+  const up=()=>{document.body.classList.remove("dragging");removeEventListener("pointermove",mv);removeEventListener("pointerup",up);removeEventListener("pointercancel",up);};
+  addEventListener("pointermove",mv);addEventListener("pointerup",up);addEventListener("pointercancel",up);}
+/* Taskbar: pinned apps + running apps, icon-only, grouped per app. Right-click / long-press for options. */
 function renderTasks(){
-  const pin=$("#pinnedBar"),run=$("#taskBar");pin.textContent="";run.textContent="";
-  for(const id of Object.keys(APPS)){
-    if(id==="power")continue;
-    const b=mk("button",{class:"tb-btn",title:APPS[id].title,"aria-label":"Open "+APPS[id].title});
-    const ic=svgIcon(ICONS[APPS[id].icon]);b.appendChild(ic);
-    if(settings.showLabels)b.appendChild(mk("span",{},APPS[id].title));
-    const isRun=[...wins.values()].some(w=>w.app===id);if(isRun)b.classList.add("running");
-    b.onclick=()=>openApp(id);pin.appendChild(b);}
-  for(const w of wins.values()){
-    const b=mk("button",{class:"tb-btn"+(w.min?" minDim":""),title:w.title+(w.min?" (minimized)":""),
-      "aria-label":"Show "+w.title});
-    b.appendChild(mk("span",{},(w.min?"＿ ":"")+w.title));
-    if(w.id===activeId)b.classList.add("running");
-    b.onclick=()=>{if(w.min||w.id!==activeId)focusWin(w.id);else minWin(w.id);};
-    run.appendChild(b);}
+  const bar=$("#taskBar");if(!bar)return;bar.textContent="";
+  const groups=new Map();
+  for(const w of wins.values()){if(!groups.has(w.key))groups.set(w.key,[]);groups.get(w.key).push(w);}
+  const pinned=pinsTb.filter(k=>appInfo(k));
+  const extra=[...groups.keys()].filter(k=>!pinned.includes(k));
+  function add(k){
+    const ws=groups.get(k)||[];
+    const info=appInfo(k)||{title:ws[0]?ws[0].title:k,native:false};
+    const act=ws.some(w=>w.id===activeId&&!w.min);
+    const b=mk("button",{class:"tb-btn"+(ws.length?" running":"")+(act?" active":"")+(ws.length&&ws.every(w=>w.min)?" allmin":""),
+      title:info.title+(ws.length>1?" ("+ws.length+" windows)":""),"aria-label":(ws.length?"Show ":"Open ")+info.title});
+    b.appendChild(appIcon(info,22));
+    if(ws.length>1)b.appendChild(mk("span",{class:"badge"},String(ws.length)));
+    if(settings.showLabels)b.appendChild(mk("span",{},info.title));
+    b.onclick=()=>{
+      if(b._lp){b._lp=false;return;}
+      if(!ws.length){openKey(k);return;}
+      if(ws.length===1){const w=ws[0];if(w.min||w.id!==activeId)focusWin(w.id);else minWin(w.id);return;}
+      const cur=ws.findIndex(w=>w.id===activeId);focusWin(ws[(cur+1)%ws.length].id);};
+    attachCtx(b,()=>{const it=[];
+      if(!ws.length)it.push({label:"Open",fn:()=>openKey(k)});
+      else{it.push({label:"New window",fn:()=>openKey(k,true)});
+        it.push({label:ws.length>1?"Close all windows":"Close window",fn:()=>ws.slice().forEach(w=>closeWin(w.id))});}
+      if(appInfo(k)){it.push("-");it.push(...pinItems(k));}
+      return it;});
+    bar.appendChild(b);}
+  pinned.forEach(add);
+  if(pinned.length&&extra.length)bar.appendChild(mk("span",{class:"tb-sep","aria-hidden":"true"}));
+  extra.forEach(add);
 }
 /* ---------- H. app registry ---------- */
 function reg(id,def){APPS[id]=Object.assign({singleton:false,w:560,h:380},def);}
 /* ---------- I. per-app UIs ---------- */
-reg("browser",{title:"Browser",icon:"browser",w:640,h:440,render(body,w){
+reg("browser",{title:"Browser",icon:"browser",w:640,h:440,render(body,w,arg){
   body.appendChild(mk("p",{class:"muted"},"In-app view (sandboxed). Many sites block embedding — use Open externally. This is not a replacement for your host browser."));
   const bar=mk("div",{class:"b-bar"});const back=mk("button",{class:"btn"},"←");const fwd=mk("button",{class:"btn"},"→");
   const rel=mk("button",{class:"btn"},"⟳");const home=mk("button",{class:"btn"},"⌂");
@@ -426,7 +509,8 @@ reg("browser",{title:"Browser",icon:"browser",w:640,h:440,render(body,w){
   rel.onclick=()=>{const s=fr.getAttribute("src");if(s)fr.setAttribute("src",s);};
   home.onclick=()=>load(HOME);
   ext.onclick=()=>{const r=toURL(inp.value);const u=r&&r.url?r.url:hist[hi]||HOME;window.open(u,"_blank","noopener");};
-  load(HOME);
+  const start=(arg&&typeof arg.url==="string")?arg.url:HOME;
+  const r0=toURL(start);load(r0&&r0.url?r0.url:HOME);
 }});
 reg("notepad",{title:"Notepad",icon:"notepad",w:600,h:430,render(body,w,arg){
   const bar=mk("div",{class:"row"});
@@ -579,13 +663,15 @@ reg("settings",{title:"Settings",icon:"settings",w:560,h:460,render(body,w){
   ck.onchange=()=>{settings.clock24=ck.value==="true";applySettings();};field("Clock format",ck);
   const dn=mk("select",{"aria-label":"Density"});["default","compact","comfortable"].forEach(t=>{const o=document.createElement("option");o.value=t;o.textContent=t;dn.appendChild(o);});dn.value=settings.density;
   dn.onchange=()=>{settings.density=dn.value;applySettings();};field("Density",dn);
+  const ts=mk("select",{"aria-label":"Title bar size"});[["slim","Slim"],["default","Default"],["large","Large"]].forEach(([v,l])=>{const o=document.createElement("option");o.value=v;o.textContent=l;ts.appendChild(o);});
+  ts.value=settings.titleSize;ts.onchange=()=>{settings.titleSize=ts.value;applySettings();};field("Window title bar size",ts);
   function chk(label,key){const l=mk("label",{class:"row"});const c=document.createElement("input");c.type="checkbox";c.checked=!!settings[key];
     c.onchange=()=>{settings[key]=c.checked;applySettings();};l.append(c,mk("span",{},label));g.appendChild(l);}
-  chk("Show desktop shortcuts","showShortcuts");chk("Show app names in taskbar","showLabels");
+  chk("Show desktop shortcuts","showShortcuts");chk("Collapse taskbar","tbCollapsed");chk("Show app names in taskbar","showLabels");
   const dt=mk("div",{class:"row"});const c2=document.createElement("input");c2.type="checkbox";c2.checked=settings.showDate;
   c2.onchange=()=>{settings.showDate=c2.checked;applySettings();};dt.append(c2,mk("span",{},"Show date in clock"));g.appendChild(dt);
   const rs=mk("button",{class:"btn danger"},"Reset settings");rs.onclick=()=>{if(!confirm("Reset all settings?"))return;
-    Object.assign(settings,{theme:"dark",accent:"#4f8cff",clock24:false,showDate:true,density:"default",showShortcuts:true,showLabels:false});
+    Object.assign(settings,{theme:"dark",accent:"#4f8cff",clock24:false,showDate:true,density:"default",showShortcuts:true,showLabels:false,tbCollapsed:false,titleSize:"default"});
     applySettings();openApp("settings");};g.appendChild(rs);
   g.appendChild(mk("p",{class:"muted"},"Preferences persist locally (localStorage). No account, no network, no telemetry."));
   const ab=mk("button",{class:"btn"},"About Nucleus limitations");ab.onclick=()=>{
@@ -662,50 +748,266 @@ reg("calc",{title:"Calculator",icon:"calc",w:320,h:400,render(body){
       else{if(op!=null&&!fresh){scr.value=String(calc(acc,scr.value,op));}acc=scr.value;op=k;fresh=true;}};
     gr.appendChild(b);}
 }});
+/* ---------- I-b. Store: installable web apps (PWAs) + native-feel web app window ---------- */
+const STORE=[
+  {id:"excalidraw",name:"Excalidraw",cat:"Create",desc:"Whiteboard & hand-drawn diagrams.",url:"https://excalidraw.com"},
+  {id:"drawio",name:"diagrams.net",cat:"Create",desc:"Flowcharts, UML and network diagrams.",url:"https://app.diagrams.net"},
+  {id:"photopea",name:"Photopea",cat:"Create",desc:"Advanced online image editor.",url:"https://www.photopea.com"},
+  {id:"squoosh",name:"Squoosh",cat:"Create",desc:"Compress and convert images.",url:"https://squoosh.app"},
+  {id:"jspaint",name:"JS Paint",cat:"Create",desc:"Classic Paint, in the browser.",url:"https://jspaint.app"},
+  {id:"piskel",name:"Piskel",cat:"Create",desc:"Pixel art and sprite editor.",url:"https://www.piskelapp.com"},
+  {id:"stackedit",name:"StackEdit",cat:"Create",desc:"Markdown editor with live preview.",url:"https://stackedit.io/app"},
+  {id:"cyberchef",name:"CyberChef",cat:"Dev & Security",desc:"Encoding, crypto and data-analysis toolkit.",url:"https://gchq.github.io/CyberChef/"},
+  {id:"devdocs",name:"DevDocs",cat:"Dev & Security",desc:"Fast API documentation browser.",url:"https://devdocs.io"},
+  {id:"regexr",name:"RegExr",cat:"Dev & Security",desc:"Learn, build and test regular expressions.",url:"https://regexr.com"},
+  {id:"jsoncrack",name:"JSON Crack",cat:"Dev & Security",desc:"Visualize JSON as graphs.",url:"https://jsoncrack.com/editor"},
+  {id:"mermaid",name:"Mermaid Live",cat:"Dev & Security",desc:"Diagrams from text.",url:"https://mermaid.live"},
+  {id:"jupyterlite",name:"JupyterLite",cat:"Dev & Security",desc:"Python notebooks running in your browser.",url:"https://jupyter.org/try-jupyter/lab/"},
+  {id:"pyodide",name:"Python Console",cat:"Dev & Security",desc:"Python REPL (Pyodide / WebAssembly).",url:"https://pyodide.org/en/stable/console.html"},
+  {id:"wikipedia",name:"Wikipedia",cat:"Learn & Maps",desc:"The free encyclopedia.",url:"https://en.wikipedia.org"},
+  {id:"desmos",name:"Desmos",cat:"Learn & Maps",desc:"Graphing calculator.",url:"https://www.desmos.com/calculator"},
+  {id:"geogebra",name:"GeoGebra",cat:"Learn & Maps",desc:"Graphing and geometry.",url:"https://www.geogebra.org/graphing"},
+  {id:"osm",name:"OpenStreetMap",cat:"Learn & Maps",desc:"Free editable map of the world.",url:"https://www.openstreetmap.org"},
+  {id:"wttr",name:"Weather (wttr.in)",cat:"Learn & Maps",desc:"Simple text weather forecast.",url:"https://wttr.in"},
+  {id:"pomofocus",name:"Pomofocus",cat:"Productivity",desc:"Pomodoro focus timer.",url:"https://pomofocus.io"},
+  {id:"2048",name:"2048",cat:"Games",desc:"Slide tiles, reach 2048.",url:"https://play2048.co"},
+  {id:"hextris",name:"Hextris",cat:"Games",desc:"Fast-paced hexagonal puzzle.",url:"https://hextris.io"}];
+let customWeb=ls.get("custom-web",[]);
+customWeb=(Array.isArray(customWeb)?customWeb:[]).filter(c=>c&&typeof c.id==="string"&&typeof c.name==="string"&&/^https?:\/\//i.test(c.url||""));
+let installedWeb=ls.get("installed-web",[]);
+installedWeb=(Array.isArray(installedWeb)?installedWeb:[]).filter(x=>typeof x==="string");
+function getWebApp(id){return STORE.find(x=>x.id===id)||customWeb.find(x=>x.id===id)||null;}
+function installWeb(id){if(!installedWeb.includes(id)){installedWeb.push(id);ls.set("installed-web",installedWeb);}refreshApps();}
+function uninstallWeb(id){
+  installedWeb=installedWeb.filter(x=>x!==id);ls.set("installed-web",installedWeb);
+  const key="web:"+id;pinsTb=pinsTb.filter(k=>k!==key);pinsDesk=pinsDesk.filter(k=>k!==key);savePins();
+  if(customWeb.some(c=>c.id===id)){customWeb=customWeb.filter(c=>c.id!==id);ls.set("custom-web",customWeb);}
+  refreshApps();}
+function openWebApp(id,forceNew){const s=getWebApp(id);if(!s)return;
+  if(!forceNew){const ex=[...wins.values()].find(w=>w.webId===id);if(ex){focusWin(ex.id);return ex.id;}}
+  return openApp("webapp",{id,title:s.name,url:s.url});}
+/* Web app window: no address bar, no browser chrome — just the title bar (size adjustable in Settings / quick menu) + content. */
+reg("webapp",{title:"Web App",icon:"browser",w:900,h:600,render(body,w,arg){
+  if(!arg||!arg.url){body.textContent="No app specified.";return;}
+  w.el.classList.add("webwin");body.classList.add("flush");
+  const tb=$(".titlebar",w.el);const acts=mk("div",{class:"t-acts"});
+  const rl=mk("button",{class:"t-act",title:"Reload","aria-label":"Reload "+w.title},"⟳");
+  const ex=mk("button",{class:"t-act",title:"Open in a new browser tab (use this if the site blocks embedding)","aria-label":"Open "+w.title+" in a new tab"},"↗");
+  acts.append(rl,ex);tb.appendChild(acts);
+  const fr=document.createElement("iframe");fr.className="webframe";
+  fr.setAttribute("sandbox","allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals");
+  fr.setAttribute("allow","clipboard-read; clipboard-write; fullscreen");
+  fr.setAttribute("title",w.title);fr.referrerPolicy="no-referrer";fr.src=arg.url;body.appendChild(fr);
+  rl.onclick=e=>{e.stopPropagation();fr.src=arg.url;};
+  ex.onclick=e=>{e.stopPropagation();window.open(arg.url,"_blank","noopener");};
+  w.cleanups.push(()=>{try{fr.src="about:blank";}catch{}});
+}});
+reg("store",{title:"Store",icon:"store",w:620,h:540,render(body,w){
+  body.appendChild(mk("p",{class:"muted"},"Install web apps (PWAs) as app-like windows with no browser chrome. Installed apps show up in the App Drawer and can be pinned to the taskbar or desktop. They need internet. Some sites refuse to be embedded — use ↗ in the title bar to open those in a new tab."));
+  const add=mk("div",{class:"row"});
+  const nm=mk("input",{type:"text",placeholder:"Name (optional)","aria-label":"Custom app name"});nm.style.width="150px";
+  const ur=mk("input",{type:"text",placeholder:"Add your own: https://example.com","aria-label":"Custom app URL"});ur.style.flex="1";ur.style.minWidth="160px";
+  const ab=mk("button",{class:"btn primary"},"Add app");add.append(nm,ur,ab);body.appendChild(add);
+  const msg=mk("p",{class:"muted"});body.appendChild(msg);
+  ab.onclick=()=>{let u=ur.value.trim();if(!u)return;if(!/^[a-z][a-z0-9+.-]*:/i.test(u))u="https://"+u;
+    let url;try{url=new URL(u);}catch{msg.textContent="Invalid URL.";return;}
+    if(url.protocol!=="https:"&&url.protocol!=="http:"){msg.textContent="Only http/https addresses are allowed.";return;}
+    const name=(nm.value.trim()||url.hostname.replace(/^www\./,"")).slice(0,40);
+    const id="c"+uid();customWeb.push({id,name,url:url.href,cat:"Custom",desc:"Custom web app"});ls.set("custom-web",customWeb);
+    installWeb(id);nm.value="";ur.value="";msg.textContent="Added “"+name+"” — find it in the App Drawer.";draw();};
+  const bar=mk("div",{class:"row"});
+  const q=mk("input",{type:"search",placeholder:"Search store…","aria-label":"Search store"});q.style.flex="1";
+  const cs=mk("select",{"aria-label":"Category"});
+  ["All","Installed",...new Set(STORE.map(s=>s.cat)),"Custom"].forEach(c=>{const o=document.createElement("option");o.value=c;o.textContent=c;cs.appendChild(o);});
+  bar.append(q,cs);body.appendChild(bar);
+  const list=mk("div",{class:"listbox"});list.style.maxHeight="none";body.appendChild(list);
+  function draw(){list.textContent="";const t=q.value.toLowerCase().trim();let n=0;
+    for(const s of STORE.concat(customWeb)){
+      const has=installedWeb.includes(s.id);
+      if(cs.value==="Installed"&&!has)continue;
+      if(cs.value!=="All"&&cs.value!=="Installed"&&s.cat!==cs.value)continue;
+      let host="";try{host=new URL(s.url).hostname;}catch{}
+      if(t&&!(s.name+" "+s.desc+" "+host).toLowerCase().includes(t))continue;
+      n++;const r=mk("div",{class:"lrow"});r.appendChild(tileEl(s.name,34));
+      const tx=mk("span",{});tx.style.flex="1";tx.style.minWidth="0";
+      tx.appendChild(mk("div",{},s.name));tx.appendChild(mk("small",{class:"muted"},s.desc+" · "+host));r.appendChild(tx);
+      const b=mk("button",{class:"btn"+(has?"":" primary")},has?"Open":"Install");
+      b.onclick=()=>{if(has)openWebApp(s.id);else{installWeb(s.id);draw();}};r.appendChild(b);
+      if(has){const rm=mk("button",{class:"btn danger"},"Remove");rm.onclick=()=>{uninstallWeb(s.id);draw();};r.appendChild(rm);}
+      list.appendChild(r);}
+    if(!n)list.appendChild(mk("p",{class:"muted"},"No apps match."));}
+  q.oninput=draw;cs.onchange=draw;draw();
+}});
+/* ---------- K. icons, pins, context menu ---------- */
+function hue(str){let h=0;for(const c of String(str))h=(h*31+c.charCodeAt(0))%360;return h;}
+function tileEl(name,px){const t=mk("span",{class:"tile","aria-hidden":"true"},(String(name||"?").trim().charAt(0)||"?").toUpperCase());
+  t.style.cssText="width:"+px+"px;height:"+px+"px;font-size:"+Math.round(px*.55)+"px;background:hsl("+hue(name)+" 55% 45%)";return t;}
+function appIcon(info,px){
+  if(info&&info.native){const s=svgIcon(ICONS[info.icon]||ICONS.tasks);s.style.width=s.style.height=px+"px";return s;}
+  return tileEl(info&&info.title,px);}
+function appInfo(key){
+  if(typeof key!=="string")return null;
+  if(key.startsWith("web:")){const s=getWebApp(key.slice(4));return s&&installedWeb.includes(s.id)?{key,title:s.name,web:true,native:false}:null;}
+  const d=APPS[key];if(!d||key==="webapp"||key==="power")return null;
+  return{key,title:d.title,icon:d.icon,native:true};}
+function openKey(key,forceNew){const a=appInfo(key);if(!a)return;if(a.web)openWebApp(key.slice(4),forceNew);else openApp(key);}
+const DEF_TB=["browser","files","notepad","terminal","settings"];
+const DEF_DESK=["browser","notepad","terminal","files","settings","wallpaper","tasks"];
+function loadPins(k,d){const v=ls.get(k,d);return Array.isArray(v)?v.filter(x=>typeof x==="string"):d.slice();}
+let pinsTb=loadPins("pins-tb",DEF_TB),pinsDesk=loadPins("pins-desk",DEF_DESK);
+function savePins(){ls.set("pins-tb",pinsTb);ls.set("pins-desk",pinsDesk);}
+function togglePin(kind,key){const list=kind==="tb"?pinsTb:pinsDesk;const i=list.indexOf(key);
+  if(i>=0)list.splice(i,1);else list.push(key);savePins();renderTasks();if(kind==="desk")buildShortcuts();}
+function pinItems(k){return[
+  {label:pinsTb.includes(k)?"Unpin from taskbar":"Pin to taskbar",fn:()=>togglePin("tb",k)},
+  {label:pinsDesk.includes(k)?"Remove from desktop":"Pin to desktop",fn:()=>togglePin("desk",k)}];}
+function refreshApps(){if(w_launcherDraw)w_launcherDraw($("#launcherSearch").value);renderTasks();buildShortcuts();}
+let ctxEl=null;
+function hideCtx(){if(ctxEl){ctxEl.remove();ctxEl=null;}}
+function showCtx(x,y,items,opts){hideCtx();const m=mk("div",{class:"ctx",role:"menu"});
+  for(const it of items){if(it==="-"){m.appendChild(mk("hr"));continue;}
+    const b=mk("button",{role:"menuitem"},it.label);b.onclick=e=>{e.stopPropagation();hideCtx();it.fn();};m.appendChild(b);}
+  document.body.appendChild(m);const r=m.getBoundingClientRect();
+  const top=(opts&&opts.above)?y-r.height-8:y;
+  m.style.left=Math.max(4,Math.min(x,innerWidth-r.width-4))+"px";
+  m.style.top=Math.max(4,Math.min(top,innerHeight-r.height-4))+"px";ctxEl=m;}
+document.addEventListener("pointerdown",e=>{if(ctxEl&&!e.target.closest(".ctx"))hideCtx();},true);
+function attachCtx(el,getItems){
+  el.addEventListener("contextmenu",e=>{e.preventDefault();e.stopPropagation();showCtx(e.clientX,e.clientY,getItems());});
+  let t=null,sx=0,sy=0;
+  el.addEventListener("pointerdown",e=>{if(e.pointerType==="mouse")return;sx=e.clientX;sy=e.clientY;clearTimeout(t);
+    t=setTimeout(()=>{el._lp=true;showCtx(sx,sy,getItems());},550);});
+  const cancel=()=>clearTimeout(t);
+  el.addEventListener("pointermove",e=>{if(Math.hypot(e.clientX-sx,e.clientY-sy)>8)cancel();});
+  el.addEventListener("pointerup",cancel);el.addEventListener("pointercancel",cancel);}
 /* ---------- J. shell wiring ---------- */
+function setMenuApp(t){document.title=(t&&t!=="Nucleus")?t+" — Nucleus":"Nucleus — Browser OS";}
 function tickClock(){const c=$("#clock");if(!c)return;const d=new Date();
   let t=settings.clock24?d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",hour12:false})
     :d.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
-  c.textContent=settings.showDate?d.toLocaleDateString([],{month:"short",day:"numeric"})+"\n"+t:t;
+  const date=d.toLocaleDateString([],{month:"short",day:"numeric"});
+  c.textContent=(settings.showDate?date+"\n":"")+t;
   const lc=$("#lockClock");if(lc)lc.textContent=d.toLocaleString();}
+function setTb(v){settings.tbCollapsed=!!v;applySettings();}
+function clampShortcuts(){const s=$("#shortcuts");if(!s)return;const W=s.clientWidth,H=s.clientHeight;if(!W||!H)return;
+  $$(".shortcut",s).forEach(b=>{
+    b.style.left=Math.min(Math.max(0,b.offsetLeft),Math.max(0,W-b.offsetWidth))+"px";
+    b.style.top=Math.min(Math.max(0,b.offsetTop),Math.max(0,H-b.offsetHeight))+"px";});}
 function buildShortcuts(){const s=$("#shortcuts");s.textContent="";
-  for(const id of["browser","notepad","terminal","files","settings","wallpaper","tasks"]){
-    const b=mk("button",{class:"shortcut","aria-label":"Open "+APPS[id].title});
-    b.appendChild(svgIcon(ICONS[APPS[id].icon]));b.appendChild(mk("span",{},APPS[id].title));
-    b.ondblclick=()=>openApp(id);b.onclick=e=>{if(e.detail===2)openApp(id);};
-    b.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openApp(id);}};
-    s.appendChild(b);}}
+  const keys=pinsDesk.filter(k=>appInfo(k));
+  const pos=ls.get("shortcut-pos",{});
+  const SX=100,SY=96;
+  const H=s.clientHeight||Math.max(200,($("#desktop").clientHeight||500)-28);
+  const rows=Math.max(1,Math.floor((H-8)/SY));
+  const taken=keys.filter(k=>pos[k]).map(k=>pos[k]);
+  function nextSlot(){for(let j=0;j<400;j++){const x=4+Math.floor(j/rows)*SX,y=4+(j%rows)*SY;
+    if(!taken.some(t=>Math.abs(t.x-x)<70&&Math.abs(t.y-y)<70)){taken.push({x,y});return{x,y};}}return{x:4,y:4};}
+  let dirty=false;
+  for(const k of keys){const a=appInfo(k);
+    if(!pos[k]){pos[k]=nextSlot();dirty=true;}
+    const b=mk("button",{class:"shortcut",title:"Open "+a.title,"aria-label":"Open "+a.title,"data-key":k});
+    b.appendChild(appIcon(a,36));b.appendChild(mk("span",{},a.title));
+    b.style.left=Math.max(0,pos[k].x)+"px";b.style.top=Math.max(0,pos[k].y)+"px";
+    // single click / tap opens (Enter/Space also fire click); a drag moves the icon instead
+    b.onclick=()=>{if(b._moved||b._lp){b._moved=false;b._lp=false;return;}openKey(k);};
+    attachCtx(b,()=>[{label:"Open",fn:()=>openKey(k)},"-",
+      {label:"Remove from desktop",fn:()=>togglePin("desk",k)},
+      {label:pinsTb.includes(k)?"Unpin from taskbar":"Pin to taskbar",fn:()=>togglePin("tb",k)}]);
+    b.addEventListener("pointerdown",e=>{
+      if(e.button!==0)return;b._moved=false;
+      const sx=e.clientX,sy=e.clientY,ox=b.offsetLeft,oy=b.offsetTop;
+      try{b.setPointerCapture(e.pointerId);}catch{}
+      const drag=ev=>{
+        if(!b._moved&&Math.hypot(ev.clientX-sx,ev.clientY-sy)<6)return;
+        b._moved=true;document.body.style.userSelect="none";
+        b.style.left=Math.max(0,Math.min(s.clientWidth-b.offsetWidth,ox+ev.clientX-sx))+"px";
+        b.style.top=Math.max(0,Math.min(s.clientHeight-b.offsetHeight,oy+ev.clientY-sy))+"px";};
+      const up=()=>{b.removeEventListener("pointermove",drag);b.removeEventListener("pointerup",up);b.removeEventListener("pointercancel",up);
+        document.body.style.userSelect="";
+        if(b._moved){const all=ls.get("shortcut-pos",{});all[k]={x:b.offsetLeft,y:b.offsetTop};ls.set("shortcut-pos",all);}};
+      b.addEventListener("pointermove",drag);b.addEventListener("pointerup",up);b.addEventListener("pointercancel",up);
+    });
+    s.appendChild(b);}
+  if(dirty)ls.set("shortcut-pos",pos);
+  clampShortcuts();}
+/* App drawer: every installed app (built-in + installed web apps), searchable, right-click / long-press to pin */
+function drawerItem(k){const a=appInfo(k);
+  const b=mk("button",{class:"dr-item",role:"option",title:a.title,"aria-label":"Open "+a.title});
+  b.appendChild(appIcon(a,40));b.appendChild(mk("span",{class:"n"},a.title));
+  if([...wins.values()].some(w=>w.key===k))b.appendChild(mk("i",{class:"dot","aria-hidden":"true"}));
+  b.onclick=()=>{if(b._lp){b._lp=false;return;}openKey(k);toggleLauncher(false);};
+  attachCtx(b,()=>{const it=[{label:"Open",fn:()=>{openKey(k);toggleLauncher(false);}},"-",...pinItems(k)];
+    if(a.web)it.push("-",{label:"Uninstall",fn:()=>{if(confirm("Uninstall "+a.title+"?"))uninstallWeb(k.slice(4));}});
+    return it;});
+  return b;}
+let w_launcherDraw=null;
 function buildLauncher(){const list=$("#launcherList");
-  function draw(f){list.textContent="";const q=(f||"").toLowerCase();
-    for(const id of Object.keys(APPS)){if(id==="power")continue;const d=APPS[id];
-      if(q&&!(d.title.toLowerCase().includes(q)||id.includes(q)))continue;
-      const b=mk("button",{class:"l-item",role:"option"});b.appendChild(svgIcon(ICONS[d.icon]));
-      const tx=mk("span",{});tx.appendChild(mk("div",{},d.title));
-      const run=[...wins.values()].some(w=>w.app===id);tx.appendChild(mk("small",{class:"muted"},run?"● running":""));
-      b.appendChild(tx);b.onclick=()=>{openApp(id);toggleLauncher(false);};list.appendChild(b);}
-    if(!list.children.length)list.appendChild(mk("p",{class:"muted"},"No apps match."));}
+  function draw(f){list.textContent="";const q=(f||"").toLowerCase().trim();let n=0;
+    const byTitle=(a,b)=>appInfo(a).title.localeCompare(appInfo(b).title);
+    const native=Object.keys(APPS).filter(k=>appInfo(k)).sort(byTitle);
+    const web=installedWeb.map(id=>"web:"+id).filter(k=>appInfo(k)).sort(byTitle);
+    function section(title,keys){
+      const ks=keys.filter(k=>!q||appInfo(k).title.toLowerCase().includes(q)||k.toLowerCase().includes(q));
+      if(!ks.length)return;
+      list.appendChild(mk("div",{class:"dr-head"},title+" · "+ks.length));
+      const g=mk("div",{class:"dr-grid",role:"listbox"});
+      for(const k of ks){g.appendChild(drawerItem(k));n++;}
+      list.appendChild(g);}
+    section("Apps",native);section("Web apps",web);
+    if(!q&&!web.length)list.appendChild(mk("p",{class:"muted"},"No web apps installed yet."));
+    if(!n)list.appendChild(mk("p",{class:"muted"},"No apps match."));
+    if(!q){const more=mk("button",{class:"btn dr-more"},"＋ Get more apps in Store");
+      more.onclick=()=>{openApp("store");toggleLauncher(false);};list.appendChild(more);}}
   $("#launcherSearch").oninput=e=>draw(e.target.value);draw("");
   w_launcherDraw=draw;}
-let w_launcherDraw=null;
 function toggleLauncher(force){const l=$("#launcher");const open=force!=null?force:!l.classList.contains("open");
-  l.classList.toggle("open",open);if(open){$("#launcherSearch").value="";w_launcherDraw&&w_launcherDraw("");setTimeout(()=>$("#launcherSearch").focus(),30);}}
+  l.classList.toggle("open",open);
+  if(open){hideCtx();$("#launcherSearch").value="";w_launcherDraw&&w_launcherDraw("");
+    if(matchMedia("(pointer:fine)").matches)setTimeout(()=>$("#launcherSearch").focus(),30);}}
+function quickMenu(btn){const r=btn.getBoundingClientRect();const sizes=["slim","default","large"];
+  showCtx(r.left,r.top,[
+    {label:"Toggle light / dark",fn:()=>{settings.theme=document.documentElement.dataset.theme==="light"?"dark":"light";applySettings();}},
+    {label:"Title bar size: "+settings.titleSize+" (change)",fn:()=>{settings.titleSize=sizes[(sizes.indexOf(settings.titleSize)+1)%3];applySettings();}},
+    {label:"Collapse taskbar",fn:()=>setTb(true)},
+    {label:"Settings…",fn:()=>openApp("settings")},
+    "-",
+    {label:"Lock / Power…",fn:()=>$("#powerMenu").classList.add("open")}],{above:true});}
 function wireShell(){
   $("#launcherBtn").onclick=e=>{e.stopPropagation();toggleLauncher();};
-  document.addEventListener("click",e=>{if(!e.target.closest("#launcher")&&!e.target.closest("#launcherBtn"))toggleLauncher(false);});
-  document.addEventListener("keydown",e=>{if(e.key==="Escape"){toggleLauncher(false);$("#powerMenu").classList.remove("open");}});
-  $("#themeBtn").onclick=()=>{settings.theme=document.documentElement.dataset.theme==="light"?"dark":"light";applySettings();};
-  $("#powerBtn").onclick=()=>$("#powerMenu").classList.add("open");
+  $("#miniLauncher").onclick=e=>{e.stopPropagation();toggleLauncher();};
+  $("#tbCollapse").onclick=()=>{toggleLauncher(false);setTb(true);};
+  $("#tbExpand").onclick=()=>setTb(false);
+  $("#trayBtn").onclick=e=>{e.stopPropagation();quickMenu(e.currentTarget);};
+  $("#launcherSearch").addEventListener("keydown",e=>{if(e.key==="Enter"){const f=$("#launcherList .dr-item");if(f)f.click();}});
+  document.addEventListener("click",e=>{if(!e.target.closest("#launcher")&&!e.target.closest("#launcherBtn")&&!e.target.closest("#miniLauncher")&&!e.target.closest(".ctx"))toggleLauncher(false);});
+  addEventListener("blur",()=>{toggleLauncher(false);hideCtx();}); // focus moved into a web app frame
+  addEventListener("resize",clampShortcuts);
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"){toggleLauncher(false);hideCtx();$("#powerMenu").classList.remove("open");}});
+  $("#desktop").addEventListener("contextmenu",e=>{
+    if(e.target.closest(".win")||e.target.closest(".shortcut"))return;e.preventDefault();
+    showCtx(e.clientX,e.clientY,[
+      {label:"Open app drawer",fn:()=>toggleLauncher(true)},
+      {label:"Get more apps (Store)",fn:()=>openApp("store")},
+      {label:"Change wallpaper",fn:()=>openApp("wallpaper")},
+      {label:"Reset shortcut layout",fn:()=>{ls.set("shortcut-pos",{});buildShortcuts();}},
+      "-",{label:"Settings",fn:()=>openApp("settings")}]);});
   $$("#powerMenu [data-p]").forEach(b=>b.onclick=()=>{const a=b.dataset.p;$("#powerMenu").classList.remove("open");power(a);});
   $("#unlockBtn").onclick=()=>$("#lockScreen").classList.remove("open");
   $("#bootBtn").onclick=()=>$("#offScreen").classList.remove("open");
+  $("#closeTabBtn").onclick=()=>{try{window.close();}catch{}}
   matchMedia("(prefers-color-scheme: light)").addEventListener?.("change",()=>{if(settings.theme==="system")applySettings();});
   setInterval(tickClock,10000);
 }
 function power(a){
   if(a==="cancel")return;
   if(a==="lock"||a==="sleep"){$("#lockScreen").classList.add("open");tickClock();}
-  else if(a==="restart"){[...wins.keys()].forEach(closeWin);toggleLauncher(false);}
-  else if(a==="off"){$("#offScreen").classList.add("open");}
+  else if(a==="restart"){[...wins.keys()].forEach(closeWin);toggleLauncher(false);setMenuApp("Nucleus");}
+  else if(a==="off"){
+    // Shut down = close this tab/website. Browsers only permit scripts to close
+    // tabs they opened, so fall back to the shutdown screen when blocked.
+    try{window.close();}catch{}
+    setTimeout(()=>{$("#offScreen").classList.add("open");},400);
+  }
 }
 /* ---------- boot ---------- */
 (async function boot(){
