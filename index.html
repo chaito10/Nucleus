@@ -36,7 +36,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
 /* ============ SECTION 2: DESKTOP / WALLPAPER ============ */
-#desktop{position:fixed;inset:0 0 var(--tb-reserve) 0;overflow:hidden}
+#desktop{position:fixed;inset:0;overflow:hidden}
 #wallpaper{position:absolute;inset:0;background:linear-gradient(135deg,#1a2340,#0b3b66 55%,#0e7a6d)}
 #wallpaper .img{position:absolute;inset:0;background-repeat:no-repeat}
 #wallpaper .dim{position:absolute;inset:0;background:#000;opacity:.25;pointer-events:none}
@@ -641,47 +641,35 @@ reg("terminal",{title:"Terminal",icon:"terminal",w:600,h:400,render(body,w){
     else if(e.key==="c"&&(e.ctrlKey||e.metaKey)){inp.value="";print("^C (input cleared)");e.preventDefault();}});
   setTimeout(()=>inp.focus(),50);
 }});
-reg("files",{title:"Files",icon:"files",w:620,h:430,render(body,w){
-  body.appendChild(mk("p",{class:"muted"},"Virtual files are stored in your browser. Use “Open real folder…” to work with folders on your computer."));
-  const bar=mk("div",{class:"row"});const up=mk("button",{class:"btn"},"↑ Up");
-  const crumb=mk("span",{class:"muted"});const bDir=mk("button",{class:"btn"},"New folder");
-  const bFile=mk("button",{class:"btn"},"New file");const bExp=mk("button",{class:"btn"},"Export");
-  const bImp=mk("button",{class:"btn"},"Import");const file=mk("input",{type:"file",accept:".json"});file.style.display="none";
-  bar.append(up,crumb);const bar2=mk("div",{class:"row"});const bReal=mk("button",{class:"btn"},"Open real folder…");bReal.onclick=()=>openApp("realfolder");bar2.append(bDir,bFile,bExp,bImp,bReal);
-  body.append(bar,bar2);
-  const list=mk("div",{class:"listbox"});body.appendChild(list);
-  const msg=mk("p",{class:"muted"});body.appendChild(msg);
-  let cwd="/";
-  function draw(){crumb.textContent=" "+cwd;list.textContent="";
-    const n=vfsGet(cwd);if(!n){msg.textContent="missing folder";return;}
-    const rows=Object.keys(n.children||{}).sort();
-    if(cwd!=="/")list.appendChild(rowUp());
-    if(!rows.length)list.appendChild(mk("p",{class:"muted"},"Empty folder."));
-    for(const k of rows){const c=n.children[k];list.appendChild(rowItem(k,c));}}
-  function rowUp(){const r=mk("div",{class:"lrow"});const b=mk("button",{class:"btn"},".. (parent)");b.onclick=()=>{cwd=normPath("..",cwd);draw();};r.appendChild(b);return r;}
-  function rowItem(k,c){const r=mk("div",{class:"lrow"});
-    r.appendChild(mk("span",{},(c.type==="dir"?"📁 ":"📄 ")+k));
-    if(c.type==="dir"){const o=mk("button",{class:"btn"},"Open");o.onclick=()=>{cwd=normPath(k,cwd);draw();};r.appendChild(o);}
-    else{const o=mk("button",{class:"btn"},"Open in Notepad");o.onclick=()=>{
-      const p=normPath(k,cwd);let found=notes.find(n=>n.title===k&&n.content===c.content);
-      if(!found){found={id:uid(),title:k,content:c.content,updated:Date.now()};notes.unshift(found);saveNotes();}
-      openApp("notepad",{noteId:found.id});};r.appendChild(o);}
-    const rn=mk("button",{class:"btn"},"Rename");rn.onclick=()=>{const nn=prompt("Rename to:",k);
-      if(!nn||nn.includes("/"))return;const e=vfsRename(normPath(k,cwd),normPath(nn,cwd));msg.textContent=e||"renamed";draw();};r.appendChild(rn);
-    const del=mk("button",{class:"btn danger"},"Delete");del.onclick=()=>{if(!confirm("Delete "+k+"?"))return;
-      msg.textContent=vfsRm(normPath(k,cwd))||"deleted";draw();};r.appendChild(del);return r;}
-  up.onclick=()=>{cwd=normPath("..",cwd);draw();};
-  bDir.onclick=()=>{const n=prompt("Folder name:");if(!n)return;msg.textContent=vfsMkdir(normPath(n,cwd))||"created";draw();};
-  bFile.onclick=()=>{const n=prompt("File name:");if(!n)return;msg.textContent=vfsTouch(normPath(n,cwd))||"created";draw();};
-  bExp.onclick=()=>{const blob=new Blob([JSON.stringify({app:"nucleus-vfs",version:1,data:vfs})],{type:"application/json"});
-    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="nucleus-vfs.json";a.click();
-    setTimeout(()=>URL.revokeObjectURL(a.href),4000);};
-  bImp.onclick=()=>file.click();
-  file.onchange=()=>{const f=file.files[0];if(!f)return;const r=new FileReader();
-    r.onload=()=>{try{const j=JSON.parse(String(r.result));const d=j.data||j;
-      if(!validateVFSImport(d))throw new Error("invalid schema");vfs=d;saveVFS();msg.textContent="imported";draw();
-    }catch(e){msg.textContent="import failed: "+e.message;}};r.readAsText(f);file.value="";};
-  w._filesRedraw=draw;draw();
+reg("files",{title:"Files",icon:"files",w:760,h:520,render(body,w){
+  body.style.display="flex";body.style.flexDirection="column";body.style.minHeight="0";
+  body.appendChild(mk("p",{class:"muted"},"One file manager for Nucleus virtual files and real files/folders. Real-folder browsing is a read-only snapshot in Firefox; Chromium may offer direct folder handles."));
+  const modebar=mk("div",{class:"row"});
+  const bVirtual=mk("button",{class:"btn primary"},"Virtual files"),bReal=mk("button",{class:"btn"},"Real folder"),bFiles=mk("button",{class:"btn"},"Choose files…");
+  const realInput=mk("input",{type:"file",multiple:"","aria-label":"Choose a folder"});realInput.setAttribute("webkitdirectory","");realInput.setAttribute("directory","");realInput.style.display="none";
+  const multiInput=mk("input",{type:"file",multiple:"","aria-label":"Choose files"});multiInput.style.display="none";
+  modebar.append(bVirtual,bReal,bFiles,realInput,multiInput);body.append(modebar);
+  const vpanel=mk("div",{});vpanel.style.cssText="display:flex;flex-direction:column;gap:8px;min-height:0;flex:1";
+  const vbar=mk("div",{class:"row"}),up=mk("button",{class:"btn"},"↑ Up"),crumb=mk("span",{class:"muted"}),bDir=mk("button",{class:"btn"},"New folder"),bFile=mk("button",{class:"btn"},"New file"),bExp=mk("button",{class:"btn"},"Export"),bImp=mk("button",{class:"btn"},"Import");
+  const imp=mk("input",{type:"file",accept:".json","aria-label":"Import virtual filesystem"});imp.style.display="none";vbar.append(up,crumb,bDir,bFile,bExp,bImp,imp);
+  const vlist=mk("div",{class:"listbox"});vlist.style.cssText="flex:1;min-height:120px;max-height:none;overflow:auto";const vmsg=mk("p",{class:"muted"});vpanel.append(vbar,vlist,vmsg);body.append(vpanel);
+  const rpanel=mk("div",{});rpanel.style.cssText="display:none;flex-direction:column;gap:8px;min-height:0;flex:1";
+  const rbar=mk("div",{class:"row"}),rPick=mk("button",{class:"btn primary"},"Choose folder…"),rUp=mk("button",{class:"btn"},"↑ Up"),rName=mk("span",{class:"muted"},"No folder selected");rbar.append(rPick,rUp,rName);
+  const rlist=mk("div",{class:"listbox"});rlist.style.cssText="flex:1;min-height:120px;max-height:none;overflow:auto";const rmsg=mk("p",{class:"muted"});rpanel.append(rbar,rlist,rmsg);body.append(rpanel);
+  let cwd="/",mode="virtual",snapshot=null,stack=[],baseName="";
+  function setMode(m){mode=m;vpanel.style.display=m==="virtual"?"flex":"none";rpanel.style.display=m==="real"?"flex":"none";bVirtual.classList.toggle("primary",m==="virtual");bReal.classList.toggle("primary",m==="real");drawVirtual();if(m==="real")drawReal();}
+  function drawVirtual(){crumb.textContent=" "+cwd;vlist.textContent="";const n=vfsGet(cwd);if(!n){vmsg.textContent="Missing folder";return;}const rows=Object.keys(n.children||{}).sort();if(cwd!=="/") {const rr=mk("div",{class:"lrow"}),bb=mk("button",{class:"btn"},".. (parent)");bb.onclick=()=>{cwd=normPath("..",cwd);drawVirtual();};rr.append(bb);vlist.append(rr);}if(!rows.length)vlist.append(mk("p",{class:"muted"},"Empty folder."));
+    for(const k of rows){const c=n.children[k],r=mk("div",{class:"lrow"});r.append(mk("span",{},(c.type==="dir"?"📁 ":"📄 ")+k));if(c.type==="dir"){const o=mk("button",{class:"btn"},"Open");o.onclick=()=>{cwd=normPath(k,cwd);drawVirtual();};r.append(o);}else{const o=mk("button",{class:"btn"},/\.pdf$/i.test(k)?"Open PDF":"Open in Notepad");o.onclick=()=>{if(/\.pdf$/i.test(k)){const blob=new Blob([c.content||""],{type:"application/pdf"});openPdfBlob(blob);return;}let found=notes.find(x=>x.title===k&&x.content===c.content);if(!found){found={id:uid(),title:k,content:c.content,updated:Date.now()};notes.unshift(found);saveNotes();}openApp("notepad",{noteId:found.id});};r.append(o);}const rn=mk("button",{class:"btn"},"Rename");rn.onclick=()=>{const nn=prompt("Rename to:",k);if(!nn||nn.includes("/"))return;vmsg.textContent=vfsRename(normPath(k,cwd),normPath(nn,cwd))||"Renamed";drawVirtual();};const del=mk("button",{class:"btn danger"},"Delete");del.onclick=()=>{if(confirm("Delete "+k+"?")){vmsg.textContent=vfsRm(normPath(k,cwd))||"Deleted";drawVirtual();}};r.append(rn,del);vlist.append(r);}
+  }
+  function drawReal(){rlist.textContent="";if(!snapshot){rName.textContent="No folder selected";rmsg.textContent="Choose a folder or individual files. Firefox supports folder selection through the file input.";return;}rName.textContent=baseName+(stack.length?" / "+stack.join(" / "):"");const prefix=stack.join("/");const dirs=new Set(),files=[];for(const item of snapshot){const rel=item.path;if(prefix&&!(rel===prefix||rel.startsWith(prefix+"/")))continue;const rest=prefix?rel.slice(prefix.length).replace(/^\//,""):rel;const seg=rest.split("/");if(seg.length>1)dirs.add(seg[0]);else if(rest)files.push(item);}if(stack.length){const rr=mk("div",{class:"lrow"}),bb=mk("button",{class:"btn"},".. (parent)");bb.onclick=()=>{stack.pop();drawReal();};rr.append(bb);rlist.append(rr);}for(const name of [...dirs].sort()){const rr=mk("div",{class:"lrow"});rr.append(mk("span",{},"📁 "+name));const bb=mk("button",{class:"btn"},"Open");bb.onclick=()=>{stack.push(name);drawReal();};rr.append(bb);rlist.append(rr);}files.sort((a,b)=>a.name.localeCompare(b.name)).forEach(item=>{const rr=mk("div",{class:"lrow"});rr.append(mk("span",{},"📄 "+item.name));const bb=mk("button",{class:"btn"},/\.pdf$/i.test(item.name)?"Open PDF":"Preview");bb.onclick=async()=>{if(/\.pdf$/i.test(item.name)){openPdfBlob(item.file);return;}if(item.file.size>2e6){rmsg.textContent="Preview limited to 2 MB.";return;}try{const txt=await readText(item.file);const win=openApp("notepad");const ww=wins.get(win);if(ww){const ta=mk("textarea",{});ta.style.cssText="width:100%;height:100%";ta.value=txt;ww.body.textContent="";ww.body.append(mk("strong",{},item.name),ta,mk("p",{class:"muted"},"Read-only snapshot. Save/export separately to keep changes."));}}catch(e){rmsg.textContent="Preview failed: "+e.message;}};rr.append(bb);rlist.append(rr);});rmsg.textContent="Read-only snapshot. Changes made in Nucleus do not modify the original files on disk.";}
+  bVirtual.onclick=()=>setMode("virtual");bReal.onclick=()=>setMode("real");bFiles.onclick=()=>multiInput.click();
+  async function loadFiles(files,label){files=[...files];if(!files.length)return;baseName=label||files[0].name;snapshot=files.map(file=>({file,name:file.name,path:(file.webkitRelativePath||file.name).split("/").slice(label?1:0).join("/")||file.name}));stack=[];setMode("real");drawReal();}
+  multiInput.onchange=()=>{loadFiles(multiInput.files,"Selected files");multiInput.value="";};realInput.onchange=()=>{const fs=[...realInput.files];if(fs.length){const nm=(fs[0].webkitRelativePath||fs[0].name).split("/")[0];loadFiles(fs,nm);}realInput.value="";};
+  rPick.onclick=async()=>{if(typeof window.showDirectoryPicker==="function"){try{const root=await window.showDirectoryPicker({mode:"read"});const arr=[];async function walk(dir,prefix=""){for await(const [name,h] of dir.entries()){if(h.kind==="directory")await walk(h,prefix+name+"/");else{const file=await h.getFile();arr.push({file,name:file.name,path:prefix+name});}}}await walk(root);snapshot=arr;baseName=root.name;stack=[];setMode("real");return;}catch(e){if(e.name==="AbortError")return;}}realInput.click();};
+  rUp.onclick=()=>{if(stack.length){stack.pop();drawReal();}else{snapshot=null;drawReal();}};
+  up.onclick=()=>{cwd=normPath("..",cwd);drawVirtual();};bDir.onclick=()=>{const n=prompt("Folder name:");if(n){vmsg.textContent=vfsMkdir(normPath(n,cwd))||"Created";drawVirtual();}};bFile.onclick=()=>{const n=prompt("File name:");if(n){vmsg.textContent=vfsTouch(normPath(n,cwd))||"Created";drawVirtual();}};
+  bExp.onclick=()=>{const blob=new Blob([JSON.stringify({app:"nucleus-vfs",version:1,data:vfs})],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="nucleus-vfs.json";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000);};bImp.onclick=()=>imp.click();imp.onchange=()=>{const f=imp.files&&imp.files[0];if(!f)return;const rr=new FileReader();rr.onload=()=>{try{const j=JSON.parse(String(rr.result)),d=j.data||j;if(!validateVFSImport(d))throw new Error("Invalid schema");vfs=d;saveVFS();vmsg.textContent="Imported";drawVirtual();}catch(e){vmsg.textContent="Import failed: "+e.message;}};rr.readAsText(f);imp.value="";};
+  w._filesRedraw=drawVirtual;drawVirtual();
 }});
 reg("settings",{title:"Settings",icon:"settings",w:560,h:460,render(body,w){
   const g=mk("div",{class:"col"});
@@ -863,11 +851,11 @@ reg("store",{title:"Store",icon:"store",w:620,h:540,render(body,w){
   const ab=mk("button",{class:"btn primary"},"Add app");add.append(nm,ur,ab);body.appendChild(add);
   const msg=mk("p",{class:"muted"});body.appendChild(msg);
   body.appendChild(mk("h4",{},"Local apps"));
-  body.appendChild(mk("p",{class:"muted"},"Turn an HTML file — or a folder with its CSS/JS/images — from this device into an app. Files are copied into this browser's storage and run sandboxed. You can also drop .html files onto the desktop."));
+  body.appendChild(mk("p",{class:"muted"},"Import an HTML file or a folder containing HTML, CSS, JavaScript and assets. Folder selection uses the standard file-input webkitdirectory feature, supported by current Firefox, Chrome and Edge. Files are copied into this browser’s storage; this does not grant ongoing access to the original folder. You can also drop .html files onto the desktop."));
   const lrow=mk("div",{class:"row"});
   const bFile=mk("button",{class:"btn primary"},"Add HTML file…"),bDir=mk("button",{class:"btn"},"Add folder…");
   const fIn=mk("input",{type:"file",accept:".html,.htm"});fIn.style.display="none";
-  const dIn=mk("input",{type:"file"});dIn.setAttribute("webkitdirectory","");dIn.multiple=true;dIn.style.display="none";
+  const dIn=mk("input",{type:"file","aria-label":"Choose a folder to import"});dIn.setAttribute("webkitdirectory","");dIn.setAttribute("directory","");dIn.multiple=true;dIn.style.display="none";
   lrow.append(bFile,bDir,fIn,dIn);body.appendChild(lrow);
   const lmsg=mk("p",{class:"muted"});body.appendChild(lmsg);
   const llist=mk("div",{class:"listbox"});llist.style.maxHeight="none";body.appendChild(llist);
@@ -1120,31 +1108,24 @@ document.addEventListener("keydown",e=>{
   else return;e.preventDefault();});
 document.addEventListener("keyup",e=>{if(sw&&e.key==="Alt")swClose(true);});
 /* ---------- N. real folders, notifications, widgets, desktop folders ---------- */
-reg("realfolder",{title:"Real Folder",icon:"files",w:660,h:470,render(body,w){
-  if(!window.showDirectoryPicker){body.appendChild(mk("p",{class:"muted"},"This browser can't open folders from your disk. Try Chrome or Edge."));return;}
-  const bar=mk("div",{class:"row"}),pick=mk("button",{class:"btn primary"},"Choose folder…"),up=mk("button",{class:"btn"},"↑ Up"),nf=mk("button",{class:"btn"},"New file"),crumb=mk("span",{class:"muted"});
-  bar.append(pick,up,nf,crumb);const list=mk("div",{class:"listbox"});list.style.maxHeight="none";const msg=mk("p",{class:"muted"});body.append(bar,list,msg);
-  let stack=[];
-  async function draw(){list.textContent="";const dir=stack[stack.length-1];if(!dir){crumb.textContent="";return;}
-    crumb.textContent=" "+stack.map(h=>h.name).join(" / ");
-    try{const ents=[];for await(const[name,h]of dir.entries())ents.push([name,h]);
-      ents.sort((a,b)=>(a[1].kind===b[1].kind?0:a[1].kind==="directory"?-1:1)||a[0].localeCompare(b[0]));
-      if(!ents.length)list.appendChild(mk("p",{class:"muted"},"Empty folder."));
-      for(const[name,h]of ents){const r=mk("div",{class:"lrow"});r.appendChild(mk("span",{},(h.kind==="directory"?"📁 ":"📄 ")+name));
-        const o=mk("button",{class:"btn"},h.kind==="directory"?"Open":"Edit");o.onclick=()=>h.kind==="directory"?(stack.push(h),draw()):edit(h);r.appendChild(o);list.appendChild(r);}
-    }catch(err){msg.textContent="Could not read folder: "+err.message;}}
-  async function edit(h){try{const f=await h.getFile();if(f.size>2e6){msg.textContent="File too large to edit here (limit 2 MB).";return;}
-    const ta=mk("textarea",{"aria-label":"Editing "+h.name});ta.style.cssText="width:100%;height:260px;box-sizing:border-box";ta.value=await readText(f);
-    const sv=mk("button",{class:"btn primary"},"Save"),cl=mk("button",{class:"btn"},"Close");
-    list.textContent="";list.append(mk("div",{},h.name),ta,sv,cl);cl.onclick=draw;
-    sv.onclick=async()=>{try{const wr=await h.createWritable();await wr.write(ta.value);await wr.close();msg.textContent="Saved "+h.name+".";}catch(err){msg.textContent="Save failed: "+err.message;}};
-  }catch(err){msg.textContent="Could not open file: "+err.message;}}
-  pick.onclick=async()=>{try{stack=[await showDirectoryPicker({mode:"readwrite"})];msg.textContent="";draw();}catch{}};
-  up.onclick=()=>{if(stack.length>1){stack.pop();draw();}};
-  nf.onclick=async()=>{const d=stack[stack.length-1];if(!d)return;const n=prompt("New file name:");if(!n||/[\\/]/.test(n))return;
-    try{await d.getFileHandle(n,{create:true});draw();}catch(err){msg.textContent="Failed: "+err.message;}};
-  msg.textContent="Choose a folder; you'll be asked to allow access. Edits are saved straight to your disk.";
+function openPdfBlob(file){const url=URL.createObjectURL(file);const win=openApp("pdfviewer",{fileUrl:url,fileName:file.name});const w=win&&wins.get(win);if(w)w.cleanups.push(()=>URL.revokeObjectURL(url));}
+reg("pdfviewer",{title:"PDF Viewer",icon:"files",w:900,h:650,render(body,w,arg){
+  body.classList.add("flush");body.style.flexDirection="column";body.style.gap="0";body.style.position="relative";
+  const head=mk("div",{class:"row"});head.style.cssText="padding:8px;flex:none;border-bottom:1px solid var(--win-border);align-items:center";
+  const choose=mk("button",{class:"btn primary"},"Open PDF…"),name=mk("span",{class:"muted"},arg&&arg.fileName||"Choose a PDF to view"),external=mk("button",{class:"btn"},"Open in browser tab"),hideHead=mk("button",{class:"btn","aria-expanded":"true","title":"Collapse PDF header"},"Hide header");
+  const input=mk("input",{type:"file",accept:"application/pdf,.pdf","aria-label":"Choose PDF file"});input.style.display="none";head.append(choose,name,external,input);hideHead.style.cssText="position:absolute;right:8px;top:4px;z-index:5;opacity:.85";body.append(head,hideHead);
+  const frame=mk("iframe",{title:"PDF document",style:"border:0;flex:1;width:100%;min-height:0;background:#fff"});frame.setAttribute("allowfullscreen","");body.append(frame);
+  const foot=mk("div",{class:"row"});foot.style.cssText="padding:7px 8px;flex:none;border-top:1px solid var(--win-border);align-items:center;justify-content:space-between";
+  const hint=mk("span",{class:"muted"},"Uses the browser's built-in PDF viewer (Firefox PDF.js when available)."),hideFoot=mk("button",{class:"btn","aria-expanded":"true","title":"Collapse PDF footer"},"Hide footer");foot.append(hint);hideFoot.style.cssText="position:absolute;right:8px;bottom:4px;z-index:5;opacity:.85";body.append(foot,hideFoot);
+  let current=arg&&arg.fileUrl||null;function show(url){current=url;frame.src=url;}
+  hideHead.onclick=()=>{const hidden=head.style.display==="none";head.style.display=hidden?"flex":"none";hideHead.textContent=hidden?"Hide header":"Show header";hideHead.setAttribute("aria-expanded",String(hidden));hideHead.title=hidden?"Collapse PDF header":"Expand PDF header";};
+  hideFoot.onclick=()=>{const hidden=foot.style.display==="none";foot.style.display=hidden?"flex":"none";hideFoot.textContent=hidden?"Hide footer":"Show footer";hideFoot.setAttribute("aria-expanded",String(hidden));hideFoot.title=hidden?"Collapse PDF footer":"Expand PDF footer";};
+  choose.onclick=()=>input.click();input.onchange=()=>{const f=input.files&&input.files[0];if(!f)return;if(f.type!=="application/pdf"&&!/\.pdf$/i.test(f.name)){name.textContent="Please choose a PDF file.";return;}if(current&&current.startsWith("blob:"))URL.revokeObjectURL(current);name.textContent=f.name;show(URL.createObjectURL(f));input.value="";};
+  external.onclick=()=>{if(current)window.open(current,"_blank","noopener");else name.textContent="Choose a PDF first.";};
+  if(current)show(current);else frame.src="about:blank";
+  w.cleanups.push(()=>{if(current&&current.startsWith("blob:"))URL.revokeObjectURL(current);});
 }});
+
 let notifs=ls.get("notifs",[]);notifs=Array.isArray(notifs)?notifs:[];
 function updBell(){const b=$("#bellBtn");if(b)b.dataset.n=notifs.length?String(Math.min(notifs.length,99)):"";}
 function notify(t){notifs.unshift({t:String(t),at:Date.now()});notifs=notifs.slice(0,50);ls.set("notifs",notifs);updBell();}
