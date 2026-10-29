@@ -1,0 +1,17 @@
+{
+  "schema": "nucleus-catalogue/v1",
+  "apps": [
+    { "id": "json-toolkit",   "name": "JSON Toolkit",     "cat": "Developer Tools",       "desc": "Format, minify and validate JSON.",              "icon": "terminal",  "entry": "apps/json-toolkit.html",   "w": 760, "h": 520, "preload": false },
+    { "id": "codec-toolkit",  "name": "Codec Toolkit",    "cat": "Developer Tools",       "desc": "Base64 and URL encode/decode.",                  "icon": "terminal",  "entry": "apps/codec-toolkit.html",  "w": 680, "h": 480, "preload": false },
+    { "id": "jwt-decoder",    "name": "JWT Decoder",      "cat": "Developer Tools",       "desc": "Inspect token headers and claims.",              "icon": "terminal",  "entry": "apps/jwt-decoder.html",    "w": 680, "h": 480, "preload": false },
+    { "id": "regex-tester",   "name": "Regex Tester",     "cat": "Developer Tools",       "desc": "Test patterns with live matches and groups.",    "icon": "terminal",  "entry": "apps/regex-tester.html",   "w": 760, "h": 520, "preload": false },
+    { "id": "hash-calculator","name": "Hash Calculator",  "cat": "Security & Forensics",  "desc": "MD5, SHA-1/256/512 for text and files.",         "icon": "settings",  "entry": "apps/hash-calculator.html","w": 680, "h": 500, "preload": false },
+    { "id": "qr-generator",   "name": "QR Generator",     "cat": "Media & Files",         "desc": "Generate QR codes offline.",                     "icon": "wallpaper", "entry": "apps/qr-generator.html",   "w": 640, "h": 560, "preload": false },
+    { "id": "color-studio",   "name": "Color Studio",     "cat": "Media & Files",         "desc": "Picker with HEX/RGB/HSL conversions.",           "icon": "wallpaper", "entry": "apps/color-studio.html",   "w": 640, "h": 520, "preload": false },
+    { "id": "pomodoro",       "name": "Pomodoro Timer",   "cat": "Productivity",          "desc": "Focus timer with break cycles.",                 "icon": "tasks",     "entry": "apps/pomodoro.html",       "w": 460, "h": 520, "preload": false },
+    { "id": "unit-converter", "name": "Unit Converter",   "cat": "Data & Calculations",   "desc": "Length, mass, temperature, data units.",         "icon": "calc",      "entry": "apps/unit-converter.html", "w": 560, "h": 460, "preload": false },
+    { "id": "csv-viewer",     "name": "CSV Viewer",       "cat": "Data & Calculations",   "desc": "Inspect, sort and filter CSV files locally.",    "icon": "files",     "entry": "apps/csv-viewer.html",     "w": 860, "h": 560, "preload": false },
+    { "id": "expense-tracker","name": "Expense Tracker",  "cat": "Everyday Utilities",    "desc": "Track spending with CSV export.",                "icon": "store",     "entry": "apps/expense-tracker.html","w": 760, "h": 540, "preload": false },
+    { "id": "markdown-notes", "name": "Markdown Notes",   "cat": "Knowledge & Writing",   "desc": "Write Markdown with live HTML preview.",         "icon": "notepad",   "entry": "apps/markdown-notes.html",  "w": 860, "h": 560, "preload": false }
+  ]
+}

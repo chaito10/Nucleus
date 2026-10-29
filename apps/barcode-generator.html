@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<!--
+  Nucleus catalogue app: Barcode Generator.
+  Self-contained offline single file. Contract: apps/CATALOG.md.
+  Code 128 (subsets A/B/C with automatic selection, modulo-103 check symbol) and
+  EAN-13 (L/G/R pattern sets, modulo-10 check digit) encoders written from scratch.
+  Pattern table transcribed from the published ISO/IEC 15417 / Code 128 symbol table.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Barcode Generator</title>
+<script type="application/nucleus+json">
+{"id":"barcode-generator","name":"Barcode Generator","cat":"Media & Files",
+ "desc":"Code 128 and EAN-13 barcodes, rendered locally.","w":780,"h":560}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --ok:#3ecf8e; --bad:#ef6e6e; --warn:#e8c46a;
+  --radius:10px; --font:13px;
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+  --ok:#1a8f5c; --bad:#b3403f; --warn:#8a6d1f;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;gap:14px;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:10px;min-width:230px;flex:1 1 260px}
+.preview{flex:2 1 320px;display:flex;flex-direction:column;gap:10px;min-width:250px}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+input[type=text]{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px;width:100%}
+input[type=text]:invalid{border-color:var(--bad)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+label{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+select{background:var(--panel);border:1px solid var(--border);radius:8px;border-radius:8px;padding:6px}
+input[type=range]{flex:1;accent-color:var(--accent);min-width:110px}
+fieldset{border:1px solid var(--border);border-radius:var(--radius);padding:10px;margin:0;display:flex;flex-direction:column;gap:8px}
+legend{padding:0 6px;color:var(--muted);font-size:12px}
+#stage{background:#fff;border-radius:var(--radius);padding:10px;min-height:150px;display:flex;align-items:center;justify-content:center;overflow:auto}
+#stage svg{display:block;max-width:100%;height:auto}
+#status{font-size:12px;min-height:18px}
+#status.err{color:var(--bad)}
+#status.ok{color:var(--ok)}
+#status.warn{color:var(--warn)}
+#detail{font-size:12px;color:var(--muted);margin:0;overflow-wrap:anywhere}
+#msg{font-size:12px;min-height:16px}
+code{font-family:ui-monospace,Consolas,monospace}
+@media (max-width:600px){main{flex-direction:column}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header><h1>Barcode Generator</h1><span class="muted">Code 128 &amp; EAN-13, encoded and rendered on-device</span></header>
+<main>
+  <div class="col">
+    <label for="sym">Symbology
+      <select id="sym">
+        <option value="code128" selected>Code 128 (A/B/C, auto subsets)</option>
+        <option value="ean13">EAN-13 (GTIN-13)</option>
+      </select>
+    </label>
+    <label for="data">Data
+      <input type="text" id="data" spellcheck="false" autocomplete="off" placeholder="Text to encode">
+    </label>
+    <fieldset>
+      <legend>Render</legend>
+      <label for="mw">Module width <span id="mw-v">2</span> px
+        <input type="range" id="mw" min="1" max="6" step="1" value="2" aria-label="Module width in pixels"></label>
+      <label for="bh">Bar height <span id="bh-v">60</span> px
+        <input type="range" id="bh" min="24" max="140" step="2" value="60" aria-label="Bar height in pixels"></label>
+      <label for="qz">Quiet zone <span id="qz-v">10</span> modules
+        <input type="range" id="qz" min="0" max="14" step="1" value="10" aria-label="Quiet zone in modules"></label>
+      <label><input type="checkbox" id="hr" checked> Human-readable text</label>
+    </fieldset>
+    <div class="row">
+      <button class="btn primary" id="dl-svg" type="button" aria-label="Download the barcode as an SVG file">Download SVG</button>
+      <button class="btn" id="dl-png" type="button" aria-label="Download the barcode as a PNG file">Download PNG</button>
+    </div>
+    <div id="msg" aria-live="polite"></div>
+  </div>
+  <div class="preview">
+    <div id="stage"></div>
+    <canvas id="cv" width="0" height="0" class="muted" aria-hidden="true" style="display:block;max-width:100%;image-rendering:pixelated"></canvas>
+    <p id="status" class="muted" role="status" aria-live="polite"></p>
+    <p id="detail"></p>
+  </div>
+</main>
+<footer><span class="muted" id="foot">Runs offline. Code 128: ASCII 0&ndash;127. EAN-13: 12 or 13 digits. Encoders were checked against an independent ZXing barcode decoder; nothing leaves this device.</span></footer>
+<script>
+"use strict";
+/* ================= Code 128 / EAN-13 encoder (pure logic, unit-testable) ================= */
+/* Symbol pattern table for Code 128 values 0..105 as bar-space-bar-space-bar-space module widths.
+   Every entry is 6 widths summing to 11 modules. Source: published ISO/IEC 15417 symbol table. */
+var C128W=[
+"212222","222122","222221","121223","121322","131222","122213","122312","132212","221213",
+"221312","231212","112232","122132","122231","113222","123122","123221","223211","221132",
+"221231","213212","223112","312131","311222","321122","321221","312212","322112","322211",
+"212123","212321","232121","111323","131123","131321","112313","132113","132311","211313",
+"231113","231311","112133","112331","132131","113123","113321","133121","313121","211331",
+"231131","213113","213311","213131","311123","311321","331121","312113","312311","332111",
+"314111","221411","431111","111224","111422","121124","121421","141122","141221","112214",
+"112412","122114","122411","142112","142211","241211","221114","413111","241112","134111",
+"111242","121142","121241","114212","124112","124211","411212","421112","421211","212141",
+"214121","412121","111143","111341","131141","114113","114311","411113","411311","113141",
+"114131","311141","411131","211412","211214","211232"
+];
+var STOPW="2331112";              /* value 106: 7 elements, ends with a 2-module bar */
+var SHIFT=98,CODE_A=101,CODE_B=100,CODE_C=99,START_A=103,START_B=104,START_C=105;
+/* EAN-13 left-hand odd-parity (L) patterns; R = complement, G = reverse(R). */
+var EAN_L=["0001101","0011001","0010011","0111101","0100011","0110001","0101111","0111011","0110111","0001011"];
+var EAN_PARITY=["LLLLLL","LLGLGG","LLGGLG","LLGGGL","LGLLGG","LGGLLG","LGGGLL","LGLGLG","LGLGGL","LGGLGL"];
+var EAN_START="101",EAN_MID="01010",EAN_END="101";
+
+function widthsToModules(w){
+  var out="";
+  for(var i=0;i<w.length;i++){
+    var n=+w[i],ch=(i%2===0)?"1":"0";
+    for(var k=0;k<n;k++)out+=ch;
+  }
+  return out;
+}
+function symbolModules(v){return widthsToModules(v===106?STOPW:C128W[v]);}
+function eanR(d){var s=EAN_L[d],o="";for(var i=0;i<7;i++)o+=(s[i]==="1"?"0":"1");return o;}
+function eanG(d){var s=eanR(d),o="";for(i=6;i>=0;i--)o+=s[i];return o;}
+var EAN_T=(function(){
+  var R=[],G=[];
+  for(var d=0;d<10;d++){R.push(eanR(d));G.push(eanG(d));}
+  return{L:EAN_L.slice(),R:R,G:G};
+})();
+function eanTables(){return EAN_T;}
+function eanCheckDigit(first12){
+  var s=0;
+  for(var i=0;i<12;i++)s+=(+first12[i])*((i%2===0)?1:3);
+  return (10-(s%10))%10;
+}
+function barError(code,message,extra){
+  var e=new Error(message);e.code=code;if(extra)for(var k in extra)e[k]=extra[k];
+  return e;
+}
+function digitRun(t,i){var n=0;while(i+n<t.length&&t.charCodeAt(i+n)>=48&&t.charCodeAt(i+n)<=57)n++;return n;}
+function pushChar(c,mode,vals){
+  if(mode==="B"){
+    if(c<32){vals.push(SHIFT);vals.push(c+64);}else vals.push(c-32);
+  }else{
+    if(c>=96){vals.push(SHIFT);vals.push(c-32);}
+    else vals.push(c<32?c+64:c-32);
+  }
+}
+/** Code 128 with automatic subset selection. Returns {values,modules,text,check,start,subsets}. */
+function code128(text){
+  var len=text.length,i;
+  if(!len)throw barError("empty","Nothing to encode.");
+  for(i=0;i<len;i++){var cc=text.charCodeAt(i);
+    if(cc>127)throw barError("unsupported","Code 128 encodes ASCII 0-127 only. Character \""+
+      (cc<160?"\\x"+cc.toString(16):String.fromCharCode(cc))+"\" (code "+cc+") at position "+(i+1)+" is out of range.");}
+  var lead=digitRun(text,0),mode,vals=[];
+  if(lead>=4){vals.push(START_C);mode="C";}
+  else if(text.charCodeAt(0)<32){vals.push(START_A);mode="A";}
+  else{vals.push(START_B);mode="B";}
+  i=0;
+  while(i<len){
+    if(mode==="C"){
+      var n=digitRun(text,i);
+      if(n>=2){vals.push(+text.substr(i,2));i+=2;continue;}
+      var c0=text.charCodeAt(i);
+      vals.push(c0<32?CODE_A:CODE_B);mode=c0<32?"A":"B";continue;
+    }
+    var n2=digitRun(text,i),rem=len-i;
+    if(n2>=6||(n2>=4&&n2===rem)){
+      if(n2===rem&&n2%2===1){pushChar(text.charCodeAt(i),mode,vals);i++;}
+      vals.push(CODE_C);mode="C";continue;
+    }
+    pushChar(text.charCodeAt(i),mode,vals);i++;
+  }
+  var sum=vals[0];
+  for(i=1;i<vals.length;i++)sum+=vals[i]*i;
+  var check=sum%103;
+  vals.push(check);
+  var modules="";
+  for(i=0;i<vals.length;i++)modules+=symbolModules(vals[i]);
+  modules+=symbolModules(106);
+  return {symbology:"code128",text:text,values:vals,check:check,
+    start:vals[0],symbols:vals.length+1,modules:modules,modulesLength:modules.length,guardRanges:null,
+    hr:text.replace(/[\x00-\x1f\x7f]/g,function(m){return "\\x"+("0"+m.charCodeAt(0).toString(16)).slice(-2);}),
+    subsetStart:lead>=4?"C":(text.charCodeAt(0)<32?"A":"B"),
+    seq:seqReport(vals)};
+}
+function seqReport(vals){
+  var names={},out=[];
+  names[START_A]="Start A";names[START_B]="Start B";names[START_C]="Start C";
+  names[CODE_A]="Code A";names[CODE_B]="Code B";names[CODE_C]="Code C";names[SHIFT]="Shift";
+  for(var i=0;i<vals.length;i++){var v=vals[i];
+    out.push(i===vals.length-2?v+" (check)":names[v]||String(v));}
+  return out.join(" ");
+}
+/** EAN-13: accepts 12 digits (check digit computed) or 13 digits (check digit validated). */
+function ean13(input){
+  var t=String(input).replace(/\s+/g,"");
+  if(!t)throw barError("empty","Nothing to encode.");
+  if(!/^[0-9]+$/.test(t))throw barError("not-digits","EAN-13 encodes digits only (received: \""+t.slice(0,24)+"\").");
+  if(t.length<12||t.length>13)throw barError("length","EAN-13 needs 12 digits (the check digit is added) or a full 13. Received "+t.length+".");
+  var cd=eanCheckDigit(t.slice(0,12));
+  if(t.length===13&&+t[12]!==cd)throw barError("check-digit","Check digit mismatch: the first 12 digits require "+cd+", the input ends in "+t[12]+".",
+    {expected:cd,got:+t[12]});
+  var full=t.length===12?t+String(cd):t;
+  var parity=EAN_PARITY[+full[0]],modules=EAN_START,k;
+  for(k=0;k<6;k++)modules+=(parity[k]==="L"?EAN_L[+full[k+1]]:eanG(+full[k+1]));
+  modules+=EAN_MID;
+  for(k=0;k<6;k++)modules+=eanR(+full[k+7]);
+  modules+=EAN_END;
+  return {symbology:"ean13",text:full,digits:full.split("").map(Number),
+    parity:parity,check:cd,modules:modules,modulesLength:modules.length,
+    guardRanges:[[0,2],[45,49],[92,94]],
+    hrSegments:[{t:full[0],m:-1.5},{t:full.slice(1,7),m:24},{t:full.slice(7,13),m:71}],
+    hr:full};
+}
+/** Dark runs of a module string; runs touching guardRanges get guard:true (drawn taller). */
+function barsFromModules(modules,guardRanges){
+  var bars=[],x=0,inBar=false,start=0;
+  for(var i=0;i<modules.length;i++){
+    var d=modules[i]==="1";
+    if(d&&!inBar){inBar=true;start=i;}
+    else if(!d&&inBar){inBar=false;bars.push({x:start,w:i-start,guard:inRanges(start,i-1,guardRanges)});}
+  }
+  if(inBar)bars.push({x:start,w:modules.length-start,guard:inRanges(start,modules.length-1,guardRanges)});
+  return bars;
+}
+function inRanges(a,b,rs){
+  if(!rs)return false;
+  for(var i=0;i<rs.length;i++)if(b>=rs[i][0]&&a<=rs[i][1])return true;
+  return false;
+}
+/** Geometry in pixels for both SVG and canvas so the two stay identical. */
+function layout(bar,o){
+  var mw=o.mw,bh=o.bh,qz=o.qz,showHr=o.hr;
+  var ext=showHr?Math.round(bh*0.22):0;             /* guard-bar / descender extension */
+  var fs=Math.max(10,Math.round(bh*0.3));
+  var leftPad=(bar.symbology==="ean13"&&showHr)?3*mw:0;
+  var W=qz*mw*2+bar.modulesLength*mw+leftPad;
+  var H=bh+ext+(showHr?fs+4:0);
+  var bars=barsFromModules(bar.modules,bar.guardRanges);
+  var rects=bars.map(function(b){
+    return {x:qz*mw+leftPad+b.x*mw,w:b.w*mw,y:0,h:bh+(b.guard?ext:0)};
+  });
+  var texts=[];
+  if(showHr){
+    if(bar.symbology==="ean13"){
+      bar.hrSegments.forEach(function(s,i){
+        texts.push({t:s.t,x:qz*mw+leftPad+s.m*mw,y:bh+ext+fs,fs:i===0?Math.round(fs*0.8):fs});
+      });
+    }else{
+      texts.push({t:bar.hr,x:qz*mw+leftPad+bar.modulesLength*mw/2,y:bh+ext+fs,fs:fs});
+    }
+  }
+  return {W:Math.ceil(W),H:Math.ceil(H),mw:mw,rects:rects,texts:texts,barBottom:bh,ext:ext,fs:fs,
+    quietPx:qz*mw,leftPad:leftPad};
+}
+if(typeof module!=="undefined")module.exports={
+  C128W:C128W,STOPW:STOPW,widthsToModules:widthsToModules,symbolModules:symbolModules,
+  EAN_L:EAN_L,EAN_PARITY:EAN_PARITY,eanTables:eanTables,eanR:eanR,eanG:eanG,EAN13_RE:/\d{12}(\d{1})?/,
+  eanCheckDigit:eanCheckDigit,code128:code128,ean13:ean13,barsFromModules:barsFromModules,layout:layout,
+  digitRun:digitRun,START_A:START_A,START_B:START_B,START_C:START_C,CODE_A:CODE_A,CODE_B:CODE_B,CODE_C:CODE_C,SHIFT:SHIFT};
+</script>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-barcode-generator-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-barcode-generator-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+/* ---------- UI ---------- */
+var SVGNS="http://www.w3.org/2000/svg";
+var last=null,lastLayout=null;
+function el(id){return document.getElementById(id);}
+function opt(){
+  return {mw:+el("mw").value,bh:+el("bh").value,qz:+el("qz").value,hr:el("hr").checked};
+}
+function setStatus(txt,cls){var s=el("status");s.textContent=txt;s.className=cls||"";}
+function setMsg(t){el("msg").textContent=t;}
+function svgNode(name,a){var n=document.createElementNS(SVGNS,name);for(var k in a)n.setAttribute(k,String(a[k]));return n;}
+function renderSvg(bar,L){
+  var old=el("stage").querySelector("svg");
+  if(old)old.remove();
+  var svg=svgNode("svg",{xmlns:SVGNS,width:L.W,height:L.H,viewBox:"0 0 "+L.W+" "+L.H,
+    role:"img","aria-label":bar.symbology+" barcode for "+bar.hr});
+  svg.setAttribute("shape-rendering","crispEdges");
+  svg.appendChild(svgNode("rect",{x:0,y:0,width:L.W,height:L.H,fill:"#ffffff"}));
+  L.rects.forEach(function(r){svg.appendChild(svgNode("rect",{x:r.x,y:r.y,width:r.w,height:r.h,fill:"#000000"}));});
+  L.texts.forEach(function(t){
+    var e=svgNode("text",{x:t.x,y:t.y,"text-anchor":"middle","font-family":"ui-monospace,Consolas,monospace","font-size":t.fs,fill:"#000000"});
+    e.textContent=t.t;svg.appendChild(e);
+  });
+  el("stage").appendChild(svg);
+  return svg;
+}
+function renderCanvas(bar,L){
+  var cv=el("cv"),ctx=cv.getContext("2d");
+  cv.width=L.W;cv.height=L.H;
+  ctx.fillStyle="#ffffff";ctx.fillRect(0,0,L.W,L.H);
+  ctx.fillStyle="#000000";
+  L.rects.forEach(function(r){ctx.fillRect(r.x,r.y,r.w,r.h);});
+  if(L.texts.length){
+    ctx.fillStyle="#000000";ctx.textAlign="center";ctx.textBaseline="alphabetic";
+    L.texts.forEach(function(t){
+      ctx.font=t.fs+"px ui-monospace, Consolas, monospace";
+      ctx.fillText(t.t,t.x,t.y-Math.round(t.fs*0.15));
+    });
+  }
+}
+function regenerate(){
+  var sym=el("sym").value,text=el("data").value,o=opt();
+  el("dl-svg").disabled=true;el("dl-png").disabled=true;
+  try{
+    var bar=sym==="ean13"?ean13(text):code128(text);
+    var L=layout(bar,o);
+    last=bar;lastLayout=L;
+    renderSvg(bar,L);renderCanvas(bar,L);
+    el("dl-svg").disabled=false;el("dl-png").disabled=false;
+    var minQz=bar.symbology==="ean13"?11:10;
+    var spec=o.qz>=minQz?"":" \u00b7 quiet zone below the "+minQz+"-module spec minimum";
+    setStatus(bar.symbology.toUpperCase()+" \u00b7 "+bar.modulesLength+" modules \u00b7 "+L.W+"\u00d7"+L.H+
+      " px \u00b7 check symbol "+bar.check+spec,o.qz>=minQz?"ok":"warn");
+    var d;
+    if(bar.symbology==="ean13"){
+      d="digits "+bar.digits.join("")+" \u00b7 parity pattern "+bar.parity+" for the leading "+bar.digits[0]+
+        " \u00b7 left "+o.mw+"px/module \u00b7 bars: start guard, 6 L/G digits, centre guard, 6 R digits, end guard.";
+    }else{
+      d="start subset "+bar.subsetStart+" \u00b7 "+bar.values.length+" symbols incl. check \u00b7 "+
+        bar.seq+".";
+    }
+    el("detail").textContent=d;
+  }catch(err){
+    last=null;lastLayout=null;
+    var s=el("stage");while(s.firstChild)s.removeChild(s.firstChild);
+    el("cv").width=0;el("cv").height=0;
+    setStatus(err.message||String(err),"err");
+    el("detail").textContent=err.code==="check-digit"?"Fix the last digit to "+err.expected+" or enter 12 digits and the check digit is added."
+      :(err.code==="length"?"EAN-13 is 13 digits (95 modules); 12 digits get a computed check digit.":"");
+  }
+}
+function fname(ext){
+  var t=(last?String(last.hr):"barcode").replace(/[^A-Za-z0-9._-]+/g,"-").slice(0,40)||"barcode";
+  return (last?last.symbology:"barcode")+"-"+t+"."+ext;
+}
+function saveSvg(){
+  if(!last)return;
+  var svg=el("stage").querySelector("svg");
+  if(!svg){setMsg("Nothing to export yet.");return;}
+  var src='<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(svg);
+  var blob=new Blob([src],{type:"image/svg+xml;charset=utf-8"});
+  dl(blob,fname("svg"),"SVG exported (vector, module-accurate).");
+}
+function savePng(){
+  if(!last)return;
+  var cv=el("cv");
+  if(!cv.toBlob){setMsg("PNG export is not supported in this browser.");return;}
+  cv.toBlob(function(b){b?dl(b,fname("png"),"PNG exported at "+(+el("mw").value)+" px/module."):setMsg("Could not create the PNG blob.");},"image/png");
+}
+function dl(blob,name,okMsg){
+  var url=URL.createObjectURL(blob),a=document.createElement("a");
+  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(url);},5000);
+  setMsg(okMsg);
+}
+function save(){
+  store.set("settings",{sym:el("sym").value,mw:+el("mw").value,bh:+el("bh").value,qz:+el("qz").value,
+    hr:el("hr").checked,data:el("data").value.slice(0,300)});
+}
+function init(){
+  var s=store.get("settings",null)||{};
+  if(s.sym)el("sym").value=s.sym;
+  if(s.mw)el("mw").value=String(s.mw);
+  if(s.bh)el("bh").value=String(s.bh);
+  if(typeof s.qz==="number")el("qz").value=String(s.qz);
+  if(typeof s.hr==="boolean")el("hr").checked=s.hr;
+  el("data").value=typeof s.data==="string"?s.data:(el("sym").value==="ean13"?"590123412345":"Hello World 123");
+  function bindRange(id){
+    el(id).addEventListener("input",function(){el(id+"-v").textContent=el(id).value;regenerate();save();});
+    el(id+"-v").textContent=el(id).value;
+  }
+  bindRange("mw");bindRange("bh");bindRange("qz");
+  el("sym").addEventListener("change",function(){
+    var v=el("sym").value,d=el("data");
+    d.pattern=v==="ean13"? "[0-9 ]*":"";
+    d.placeholder=v==="ean13"?"12 or 13 digits, e.g. 590123412345":"Text to encode (ASCII)";
+    if(!d.value)d.value=v==="ean13"?"590123412345":"Hello World 123";
+    regenerate();save();
+  });
+  el("data").addEventListener("input",function(){regenerate();save();});
+  el("hr").addEventListener("change",function(){regenerate();save();});
+  el("dl-svg").addEventListener("click",saveSvg);
+  el("dl-png").addEventListener("click",savePng);
+  if(!store.persistent)el("foot").textContent+=" Settings are session only, not persisted (embedded sandbox).";
+  el("data").pattern=el("sym").value==="ean13"?"[0-9 ]*":"";
+  el("data").placeholder=el("sym").value==="ean13"?"12 or 13 digits, e.g. 590123412345":"Text to encode (ASCII)";
+  regenerate();
+}
+init();
+</script>
+</body>
+</html>

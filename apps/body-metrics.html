@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<!--
+  Nucleus catalogue app: Body Metrics.
+  Self-contained offline single file. Contract: apps/CATALOG.md.
+  Formulas: WHO BMI bands, waist-to-height (<0.5), Mifflin-St Jeor, Katch-McArdle,
+  standard activity multipliers, 7700 kcal/kg (3500 kcal/lb) energy equivalence.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Body Metrics</title>
+<script type="application/nucleus+json">
+{"id":"body-metrics","name":"Body Metrics","cat":"Everyday Utilities",
+ "desc":"BMI, waist-to-height, TDEE and macro targets.","icon":"calc","w":840,"h":620}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --ok:#3ecf8e; --bad:#ef6e6e;
+  --radius:10px; --font:13px;
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+  --ok:#1a8f5c; --bad:#b3403f;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}
+.col{display:flex;flex-direction:column;gap:10px;min-width:240px;flex:1 1 280px}
+.results{flex:2 1 400px;min-width:260px;display:flex;flex-direction:column;gap:8px}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+input[type=text],select{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px;width:100%}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+label{display:flex;flex-direction:column;gap:4px;font-size:12px}
+.result{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px}
+.result b{font-size:15px;font-variant-numeric:tabular-nums}
+.result .formula{display:block;color:var(--muted);font-size:11px;margin-top:3px;word-break:break-word}
+#status{font-size:12px;min-height:16px}
+#status.err{color:var(--bad)}
+.seg{display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.seg button{flex:1;background:var(--panel);border:0;padding:6px 10px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#fff}
+.band{display:inline-block;padding:1px 8px;border-radius:99px;border:1px solid var(--border);font-size:12px}
+@media (max-width:640px){main{flex-direction:column}.col,.results{flex:1 1 auto;min-width:0}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header><h1>Body Metrics</h1><span class="muted">Screens and estimates from published formulas</span></header>
+<main>
+  <div class="col" role="group" aria-label="Body metrics inputs">
+    <div class="seg" role="group" aria-label="Unit system">
+      <button type="button" id="u-metric" aria-pressed="true">Metric</button>
+      <button type="button" id="u-imperial" aria-pressed="false">Imperial</button>
+    </div>
+    <label for="in-sex">Sex (for Mifflin-St Jeor)
+      <select id="in-sex"><option value="m" selected>Male</option><option value="f">Female</option></select></label>
+    <label for="in-age">Age (years, 10–100)
+      <input type="text" id="in-age" inputmode="numeric" value="30"></label>
+    <div class="row" id="metric-fields" style="align-items:flex-start">
+      <label for="in-h" style="flex:1">Height (cm)
+        <input type="text" id="in-h" inputmode="decimal" value="175"></label>
+      <label for="in-w" style="flex:1">Weight (kg)
+        <input type="text" id="in-w" inputmode="decimal" value="70"></label>
+      <label for="in-waist" style="flex:1">Waist (cm, optional)
+        <input type="text" id="in-waist" inputmode="decimal" value=""></label>
+    </div>
+    <div class="row" id="imperial-fields" hidden style="align-items:flex-start">
+      <label for="in-hi" style="flex:1">Height (in)
+        <input type="text" id="in-hi" inputmode="decimal" value="68.9"></label>
+      <label for="in-wi" style="flex:1">Weight (lb)
+        <input type="text" id="in-wi" inputmode="decimal" value="154.3"></label>
+      <label for="in-waisti" style="flex:1">Waist (in, optional)
+        <input type="text" id="in-waisti" inputmode="decimal" value=""></label>
+    </div>
+    <label for="in-bf">Body fat % (optional, 3–70 — enables Katch-McArdle)
+      <input type="text" id="in-bf" inputmode="decimal" value=""></label>
+    <label for="in-act">Activity level
+      <select id="in-act"></select></label>
+    <label for="in-goal">Weekly weight change (for target calories)
+      <select id="in-goal"></select></label>
+    <div class="row">
+      <label for="in-pp" style="flex:1">Protein (%)
+        <input type="text" id="in-pp" inputmode="numeric" value="30"></label>
+      <label for="in-pf" style="flex:1">Fat (%)
+        <input type="text" id="in-pf" inputmode="numeric" value="30"></label>
+    </div>
+    <button class="btn primary" id="btn-calc" type="button">Calculate</button>
+    <div id="status" aria-live="polite" class="muted"></div>
+    <p class="muted" style="margin:0">BMI is a population-level screen, not a body-composition measure — it cannot tell muscle, fat and bone apart. Waist-to-height and calorie/macro numbers are estimates from published formulas, not medical advice.</p>
+  </div>
+  <div class="results" id="results" aria-live="polite">
+    <div class="result">BMI <b id="r-bmi">–</b> <span class="band" id="r-bmi-band">–</span>
+      <span class="formula" id="r-bmi-f"></span></div>
+    <div class="result">Waist-to-height ratio <b id="r-whtr">–</b> <span class="band" id="r-whtr-band">–</span>
+      <span class="formula" id="r-whtr-f"></span></div>
+    <div class="result">BMR — Mifflin-St Jeor <b id="r-mis">–</b>
+      <span class="formula" id="r-mis-f"></span></div>
+    <div class="result">BMR — Katch-McArdle <b id="r-km">–</b>
+      <span class="formula" id="r-km-f"></span></div>
+    <div class="result">TDEE (Mifflin) <b id="r-tdee">–</b>
+      <span class="formula" id="r-tdee-f"></span></div>
+    <div class="result">TDEE (Katch-McArdle) <b id="r-tdeekm">–</b>
+      <span class="formula" id="r-tdeekm-f"></span></div>
+    <div class="result">Target calories <b id="r-target">–</b>
+      <span class="formula" id="r-target-f"></span></div>
+    <div class="result">Macro split at target <b id="r-macros">–</b>
+      <span class="formula" id="r-macros-f"></span></div>
+    <p class="muted" id="advice" hidden></p>
+  </div>
+</main>
+<footer><span class="muted" id="foot">Runs offline. Estimates only — not medical advice. Data stays on this device.</span></footer>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-body-metrics-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-body-metrics-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+</script>
+<script>
+"use strict";
+/* ================= Body metrics logic (pure; unit-tested under node) ================= */
+var LB_TO_KG=0.45359237, IN_TO_CM=0.0254, KCAL_PER_KG=7700, KCAL_PER_LB=3500;
+var ACTIVITY=[
+  {id:"sedentary",label:"Sedentary (desk job, little exercise)",factor:1.2},
+  {id:"light",label:"Light (1-3 sessions/week)",factor:1.375},
+  {id:"moderate",label:"Moderate (3-5 sessions/week)",factor:1.55},
+  {id:"very",label:"Very active (6-7 sessions/week)",factor:1.725},
+  {id:"extra",label:"Extra active (physical job + training)",factor:1.9}
+];
+var BMI_BANDS=[
+  {max:16,label:"Severe thinness (WHO)"},
+  {max:17,label:"Moderate thinness (WHO)"},
+  {max:18.5,label:"Mild thinness (WHO)"},
+  {max:25,label:"Normal range (WHO)"},
+  {max:30,label:"Overweight / pre-obese (WHO)"},
+  {max:35,label:"Obese class I (WHO)"},
+  {max:40,label:"Obese class II (WHO)"},
+  {max:Infinity,label:"Obese class III (WHO)"}
+];
+function num(str){
+  var s=String(str==null?"":str).trim().replace(/[,\s ]/g,"");
+  if(!/^\d*(\.\d*)?$/.test(s)||s===""||s===".")return null;
+  var v=Number(s);return isFinite(v)?v:null;
+}
+function round1(x){return Math.round(x*10)/10;}
+function round2(x){return Math.round(x*100)/100;}
+/* Inputs are metric kg/cm; convert first for imperial. Boundaries: 18.5 -> normal band,
+   25 -> overweight, 30 -> obese class I (band max is exclusive). */
+function bmi(wkg,hcm){
+  var m=hcm/100;
+  return wkg/(m*m);
+}
+function bmiBand(v){
+  for(var i=0;i<BMI_BANDS.length;i++)if(v<BMI_BANDS[i].max)return BMI_BANDS[i].label;
+  return BMI_BANDS[BMI_BANDS.length-1].label;
+}
+function whtr(waistcm,heightcm){return waistcm/heightcm;}
+function whtrBand(r){
+  if(r<0.5)return "Below 0.5 — lower-risk guidance";
+  if(r<0.6)return "0.5 to 0.6 — elevated risk";
+  return "0.6 or above — high risk";
+}
+/* Mifflin-St Jeor: 10*kg + 6.25*cm - 5*age + 5 (male) / -161 (female), kcal/day */
+function mifflin(sex,wkg,hcm,age){
+  var base=10*wkg+6.25*hcm-5*age;
+  return sex==="f"?base-161:base+5;
+}
+/* Katch-McArdle: 370 + 21.6 * leanMassKg, lean = weight * (1 - bf%/100) */
+function katchMcArdle(wkg,bfPct){
+  var lean=wkg*(1-bfPct/100);
+  return 370+21.6*lean;
+}
+function tdee(bmr,factor){return bmr*factor;}
+/* weeklyDeltaKg: negative = loss. deficit = |delta|*7700/7 per day */
+function targetCalories(tdeeVal,weeklyDeltaKg){
+  return tdeeVal-weeklyDeltaKg*KCAL_PER_KG/7;
+}
+function macroGrams(cals,pPct,fPct){
+  var cPct=100-pPct-fPct;
+  return{
+    proteinPct:pPct,carbPct:cPct,fatPct:fPct,
+    proteinKcal:cals*pPct/100,carbKcal:cals*cPct/100,fatKcal:cals*fPct/100,
+    proteinG:cals*pPct/100/4,carbG:cals*cPct/100/4,fatG:cals*fPct/100/9
+  };
+}
+function activityFactor(id){
+  for(var i=0;i<ACTIVITY.length;i++)if(ACTIVITY[i].id===id)return ACTIVITY[i].factor;
+  return null;
+}
+/* Gather + validate. returns {error} or metric values */
+function gather(v){
+  var age=num(v.age);
+  if(age==null||age<10||age>100)return{error:"Age must be between 10 and 100 years."};
+  var hcm,ukg,waistcm=null,bf=num(v.bf);
+  if(v.system==="imperial"){
+    var win=num(v.height),wlb=num(v.weight);
+    if(win==null||wlb==null)return{error:"Enter height and weight in inches and pounds."};
+    if(win<35.4||win>102.4)return{error:"Height must be 35.4-102.4 in (90-260 cm)."};
+    if(wlb<44||wlb>1102)return{error:"Weight must be 44-1102 lb (20-500 kg)."};
+    hcm=win*IN_TO_CM*100;
+    ukg=wlb*LB_TO_KG;
+    if(v.waist!=null&&String(v.waist).trim()!==""){
+      waistcm=num(v.waist);
+      if(waistcm==null)return{error:"Waist must be a number in inches."};
+      if(waistcm<15.7||waistcm>98.4)return{error:"Waist must be 15.7-98.4 in (40-250 cm)."};
+      waistcm=waistcm*2.54;
+    }
+  }else{
+    hcm=num(v.height);ukg=num(v.weight);
+    if(hcm==null||ukg==null)return{error:"Enter height (cm) and weight (kg)."};
+    if(hcm<90||hcm>260)return{error:"Height must be 90-260 cm."};
+    if(ukg<20||ukg>500)return{error:"Weight must be 20-500 kg."};
+    if(v.waist!=null&&String(v.waist).trim()!==""){
+      waistcm=num(v.waist);
+      if(waistcm==null)return{error:"Waist must be a number in cm."};
+      if(waistcm<40||waistcm>250)return{error:"Waist must be 40-250 cm."};
+    }
+  }
+  if(bf!=null&&(bf<3||bf>70))return{error:"Body fat must be 3-70 percent (or left empty)."};
+  var pPct=num(v.proteinPct),fPct=num(v.fatPct);
+  if(pPct==null||fPct==null)return{error:"Macro percentages must be numbers."};
+  if(pPct<5||pPct>60||fPct<10||fPct>70||pPct+fPct>95)
+    return{error:"Protein 5-60%, fat 10-70% and protein+fat up to 95% (carbs take the rest)."};
+  var factor=activityFactor(v.activityId);
+  if(factor==null)return{error:"Unknown activity level."};
+  var weekly=num(v.weeklyDelta);
+  if(weekly==null)return{error:"Unknown goal rate."};
+  return{age:age,hcm:hcm,ukg:ukg,waistcm:waistcm,bf:bf,sex:v.sex,pPct:pPct,fPct:fPct,factor:factor,weeklyDeltaKg:weekly};
+}
+if(typeof module!=="undefined")module.exports={LB_TO_KG:LB_TO_KG,IN_TO_CM:IN_TO_CM,KCAL_PER_KG:KCAL_PER_KG,KCAL_PER_LB:KCAL_PER_LB,ACTIVITY:ACTIVITY,BMI_BANDS:BMI_BANDS,num:num,bmi:bmi,bmiBand:bmiBand,whtr:whtr,whtrBand:whtrBand,mifflin:mifflin,katchMcArdle:katchMcArdle,tdee:tdee,targetCalories:targetCalories,macroGrams:macroGrams,activityFactor:activityFactor,gather:gather,round1:round1,round2:round2};
+</script>
+<script>
+"use strict";
+/* ================= UI wiring ================= */
+function $(id){return document.getElementById(id);}
+function setStatus(msg,cls){var el=$("status");el.textContent=msg||"";el.className=cls||"muted";}
+(function initSelects(){
+  var act=$("in-act");
+  ACTIVITY.forEach(function(a){
+    var o=document.createElement("option");o.value=a.id;o.textContent=a.label+" (×"+a.factor+")";
+    if(a.id==="moderate")o.selected=true;act.appendChild(o);});
+  var goal=$("in-goal");
+  [[-1,-1],[-0.75,-0.75],[-0.5,-0.5],[-0.25,-0.25],[0,0],[0.25,0.25],[0.5,0.5]].forEach(function(g){
+    var o=document.createElement("option");o.value=String(g[0]);o.dataset.kg=g[0];
+    o.textContent=(g[1]<0?"Lose ":g[1]>0?"Gain ":"Steady ")+(g[1]===0?"":Math.abs(g[1])+" ");
+    if(g[0]===-0.5)o.selected=true;goal.appendChild(o);});
+})();
+function unitLabels(){
+  var imp=$("u-imperial").ariaPressed==="true";
+  $("metric-fields").hidden=imp;$("imperial-fields").hidden=!imp;
+  var goal=$("in-goal");
+  var sel=goal.value;
+  while(goal.firstChild)goal.removeChild(goal.firstChild);
+  [[-1,-1],[-0.75,-0.75],[-0.5,-0.5],[-0.25,-0.25],[0,0],[0.25,0.25],[0.5,0.5]].forEach(function(g){
+    var o=document.createElement("option");o.value=String(g[0]);
+    var kg=Math.abs(g[0]),lb=Math.round(kg*2.20462*100)/100;
+    o.textContent=(g[0]<0?"Lose ":g[0]>0?"Gain ":"Steady")+(g[0]===0?"":(imp?lb+" lb":kg+" kg")+"/week");
+    goal.appendChild(o);
+  });
+  goal.value=sel;
+}
+function collect(){
+  var imp=$("u-imperial").ariaPressed==="true";
+  return{
+    system:imp?"imperial":"metric",
+    sex:$("in-sex").value,age:$("in-age").value,
+    height:imp?$("in-hi").value:$("in-h").value,
+    weight:imp?$("in-wi").value:$("in-w").value,
+    waist:imp?$("in-waisti").value:$("in-waist").value,
+    bf:$("in-bf").value,activityId:$("in-act").value,
+    weeklyDelta:$("in-goal").value,
+    proteinPct:$("in-pp").value,fatPct:$("in-pf").value
+  };
+}
+function fmt(x,d){return x.toFixed(d===undefined?1:d);}
+function recalc(){
+  var g=gather(collect());
+  if(g.error){setStatus(g.error,"err");return;}
+  setStatus("","muted");
+  var bmiV=bmi(g.ukg,g.hcm);
+  $("r-bmi").textContent=fmt(bmiV,1);
+  $("r-bmi-band").textContent=bmiBand(bmiV);
+  $("r-bmi-f").textContent="BMI = "+fmt(g.ukg,2)+" kg / ("+fmt(g.hcm,1)+" cm ÷ 100)² = "+fmt(bmiV,2);
+  if(g.waistcm!=null){
+    var w=whtr(g.waistcm,g.hcm);
+    $("r-whtr").textContent=fmt(w,2)+" ("+fmt(w*100,0)+"%)";
+    $("r-whtr-band").textContent=whtrBand(w);
+    $("r-whtr-f").textContent="WHtR = "+fmt(g.waistcm,1)+" ÷ "+fmt(g.hcm,1)+" = "+fmt(w,3)+". Guidance: keep under 0.5 × height.";
+  }else{$("r-whtr").textContent="–";$("r-whtr-band").textContent="no waist given";$("r-whtr-f").textContent="Enter waist to compute the ratio (guidance: under 0.5).";}
+  var mis=mifflin(g.sex,g.ukg,g.hcm,g.age);
+  $("r-mis").textContent=fmt(mis,0)+" kcal/day";
+  $("r-mis-f").textContent="Mifflin-St Jeor: 10×"+fmt(g.ukg,2)+" + 6.25×"+fmt(g.hcm,1)+" − 5×"+g.age+(g.sex==="f"?" − 161":" + 5");
+  if(g.bf!=null){
+    var km=katchMcArdle(g.ukg,g.bf);
+    $("r-km").textContent=fmt(km,0)+" kcal/day";
+    $("r-km-f").textContent="Katch-McArdle: 370 + 21.6×lean ("+fmt(g.ukg*(1-g.bf/100),2)+" kg of "+fmt(g.ukg,2)+" at "+fmt(g.bf,1)+"% body fat)";
+    $("r-tdeekm").textContent=fmt(tdee(km,g.factor),0)+" kcal/day";
+    $("r-tdeekm-f").textContent="TDEE = Katch-McArdle BMR × activity factor "+g.factor;
+  }else{
+    $("r-km").textContent="–";$("r-km-f").textContent="Enter body fat % to enable the lean-mass formula.";
+    $("r-tdeekm").textContent="–";$("r-tdeekm-f").textContent="";
+  }
+  var td=tdee(mis,g.factor);
+  $("r-tdee").textContent=fmt(td,0)+" kcal/day";
+  $("r-tdee-f").textContent="TDEE = Mifflin BMR × "+g.factor+" (activity multiplier)";
+  var tgt=targetCalories(td,g.weeklyDeltaKg);
+  $("r-target").textContent=fmt(tgt,0)+" kcal/day";
+  var deltaTxt=(g.weeklyDeltaKg===0?"maintenance":(g.weeklyDeltaKg<0?"−":"+")+fmt(Math.abs(g.weeklyDeltaKg),2)+" kg/week × 7700 kcal ÷ 7 days");
+  $("r-target-f").textContent="Target = TDEE "+(g.weeklyDeltaKg<0?"−":g.weeklyDeltaKg>0?"+":"")+fmt(Math.abs(g.weeklyDeltaKg*7700/7),0)+" ("+deltaTxt+")";
+  var m=macroGrams(tgt,g.pPct,g.fPct);
+  $("r-macros").textContent=fmt(m.proteinG,0)+" g protein / "+fmt(m.carbG,0)+" g carbs / "+fmt(m.fatG,0)+" g fat";
+  $("r-macros-f").textContent="Split "+m.proteinPct+"/"+m.carbPct+"/"+m.fatPct+" % of "+fmt(tgt,0)+" kcal; grams = kcal÷4 (protein, carbs) and ÷9 (fat).";
+  var adv="";
+  if(tgt<1200)adv="Target is below 1200 kcal/day — that is too low to plan from here; a very conservative estimate is shown, please consult a qualified professional.";
+  else if(g.weeklyDeltaKg!==0&&Math.abs(g.weeklyDeltaKg)>1)adv="Weekly change above 1 kg is aggressive and not offered by the presets.";
+  $("advice").hidden=!adv;$("advice").textContent=adv;
+  persist();
+}
+var FIELD_IDS=["in-sex","in-age","in-h","in-w","in-waist","in-hi","in-wi","in-waisti","in-bf","in-act","in-goal","in-pp","in-pf"];
+function persist(){
+  var o={sys:$("u-imperial").ariaPressed==="true"?"i":"m"};
+  FIELD_IDS.forEach(function(id){o[id]=String($(id).value);});
+  store.set("inputs",o);
+}
+function switchUnit(imp){
+  if(imp===($("u-imperial").ariaPressed==="true"))return;
+  var g=gather(collect());
+  if(!g.error){
+    if(imp){$("in-hi").value=round2(g.hcm/2.54);$("in-wi").value=round2(g.ukg/LB_TO_KG);
+      if(g.waistcm!=null)$("in-waisti").value=round2(g.waistcm/2.54);}
+    else{$("in-h").value=round2(g.hcm);$("in-w").value=round2(g.ukg);
+      if(g.waistcm!=null)$("in-waist").value=round2(g.waistcm);}
+  }
+  $("u-metric").setAttribute("aria-pressed",imp?"false":"true");
+  $("u-imperial").setAttribute("aria-pressed",imp?"true":"false");
+  unitLabels();recalc();
+}
+function init(){
+  FIELD_IDS.forEach(function(id){$(id).addEventListener("input",recalc);$(id).addEventListener("change",recalc);});
+  $("u-metric").addEventListener("click",function(){switchUnit(false);});
+  $("u-imperial").addEventListener("click",function(){switchUnit(true);});
+  var saved=store.get("inputs",null);
+  if(saved&&typeof saved==="object"){
+    FIELD_IDS.forEach(function(id){if(typeof saved[id]==="string")$(id).value=saved[id];});
+    if(saved.sys==="i"){$("u-metric").setAttribute("aria-pressed","false");$("u-imperial").setAttribute("aria-pressed","true");}
+  }
+  unitLabels();
+  recalc();
+  if(!store.persistent){$("foot").textContent=$("foot").textContent+" Inputs are session only, not persisted (embedded sandbox).";}
+}
+init();
+</script>
+</body>
+</html>

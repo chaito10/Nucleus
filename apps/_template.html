@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<!--
+  Nucleus catalogue app template.
+  Copy this file, replace every TOOL/Tool placeholder, and implement the tool logic.
+  Contract rules are in apps/CATALOG.md. Keep this file self-contained: no network, no libraries.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tool</title>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --radius:10px; --font:13px;
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+textarea,input[type=text],input[type=number],select{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px;width:100%}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header><h1>Tool</h1><span class="muted"><!-- short subtitle --></span></header>
+<main><!-- tool UI --></main>
+<footer><span class="muted">Runs offline. Data stays on this device.</span></footer>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-TOOL-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-TOOL-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+/* ---------- Tool logic below ---------- */
+</script>
+</body>
+</html>

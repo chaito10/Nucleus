@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<!--
+  Nucleus catalogue app: EXIF Viewer.
+  Self-contained offline single file. Contract: apps/CATALOG.md.
+  Hand-written TIFF/IFD parser: byte order II/MM, IFD0 -> IFD1/SubIFDs, and the Exif (0x8769),
+  GPS (0x8825) and Interoperability (0xA005) sub-IFDs. All IFD offsets are relative to the start of
+  the TIFF block, as the specs require. Carriers: JPEG APP1 ("Exif\0\0"), standalone TIFF
+  (BigTIFF detected and reported as unsupported), PNG eXIf + tEXt/iTXt/zTXt + IHDR.
+  Tag-name registries follow the TIFF/EP + EXIF registries as published by Pillow (PIL.ExifTags);
+  unknown tag ids are reported as 0xNNNN (unknown) with their raw value, never dropped.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EXIF Viewer</title>
+<script type="application/nucleus+json">
+{"id":"exif-viewer","name":"EXIF Viewer","cat":"Media & Files",
+ "desc":"Read JPEG/TIFF/PNG metadata locally.","icon":"files","w":900,"h":620}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --ok:#3ecf8e; --bad:#ef6e6e; --warn:#e8c46a;
+  --radius:10px; --font:13px;
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+  --ok:#1a8f5c; --bad:#b3403f; --warn:#7a5c10;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:10px;min-width:220px;flex:0 1 250px}
+.grow{flex:1 1 340px;min-width:0}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+button,input,select{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+#drop{border:1px dashed var(--border);border-radius:var(--radius);padding:14px 12px;text-align:center;
+  display:flex;flex-direction:column;gap:8px;align-items:center;background:var(--panel)}
+#drop.over{outline:2px solid var(--accent)}
+#drop p{margin:0;word-break:break-word}
+#status{font-size:12px;min-height:16px;word-break:break-word}
+#status.err{color:var(--bad)} #status.ok{color:var(--ok)}
+h2{font-size:12px;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+h2:first-child{margin-top:0}
+ul.notes{margin:0;padding-left:18px}
+ul.notes li{margin:2px 0}
+ul.notes li.warn{color:var(--warn)}
+.card{border:1px solid var(--border);border-radius:var(--radius);background:var(--panel);padding:10px}
+dl.facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0}
+dl.facts dt{color:var(--muted);font-weight:600}
+dl.facts dd{margin:0;word-break:break-word}
+.tblwrap{overflow:auto;max-height:44vh;border:1px solid var(--border);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+th{position:sticky;top:0;background:var(--bg);z-index:1;font-weight:600;color:var(--muted);white-space:nowrap}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+td.val{word-break:break-word}
+tr.unknown td.name{color:var(--warn)}
+tr.ifdrow td{background:var(--hover);font-weight:600}
+#thumb{max-width:100%;border-radius:8px;border:1px solid var(--border);display:block}
+#thumbwrap{display:none}
+#fileIn{max-width:100%;font-size:12px}
+@media (max-width:700px){main{flex-direction:column;flex-wrap:nowrap}.col,.grow{flex:1 1 auto;width:100%;min-width:0}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1>EXIF Viewer</h1>
+  <span class="muted">Hand-written TIFF/IFD reader &mdash; parsed in memory only</span>
+</header>
+<main>
+  <section class="col" aria-label="File input">
+    <div id="drop">
+      <p class="muted">Drop a <strong>JPEG</strong>, <strong>TIFF</strong> or <strong>PNG</strong> here</p>
+      <input type="file" id="fileIn" accept=".jpg,.jpeg,.tif,.tiff,.png,image/jpeg,image/tiff,image/png" aria-label="Image file to inspect">
+      <p class="muted" id="fname">No file loaded</p>
+    </div>
+    <div class="row">
+      <button class="btn" id="dlReport" type="button" disabled>Download text report</button>
+    </div>
+    <div id="status" class="muted" aria-live="polite">Nothing is uploaded; the bytes stay in this page.</div>
+    <div id="thumbwrap">
+      <h2>Embedded thumbnail</h2>
+      <img id="thumb" alt="Thumbnail stream extracted from the file, shown as stored">
+      <p class="muted" id="thumbinfo"></p>
+    </div>
+  </section>
+  <section class="grow" aria-label="Results">
+    <h2>Notes</h2>
+    <ul class="notes" id="notes"><li class="muted">Load a file to see its metadata.</li></ul>
+    <h2>Summary</h2>
+    <div class="card"><dl class="facts" id="facts"><dt>File</dt><dd class="muted">&mdash;</dd></dl></div>
+    <h2>Tag table <span class="muted" id="tagcount"></span></h2>
+    <div class="tblwrap">
+      <table id="tags">
+        <caption class="muted" style="text-align:left;padding:6px 8px">Every entry found, grouped by IFD. Offsets are relative to the start of the TIFF block. Unknown tag ids keep their raw value.</caption>
+        <thead><tr><th scope="col">IFD</th><th scope="col">Tag</th><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Count</th><th scope="col">Value</th></tr></thead>
+        <tbody><tr><td colspan="6" class="muted">No data yet.</td></tr></tbody>
+      </table>
+    </div>
+    <h2>Container structure</h2>
+    <div class="card"><dl class="facts" id="container"><dt>&mdash;</dt><dd class="muted">No file loaded.</dd></dl></div>
+  </section>
+</main>
+<footer><span class="muted" id="foot">Runs offline. Maker notes and proprietary camera tags are shown as raw bytes, not decoded. Classic TIFF/EXIF only (version 42). Data stays on this device.</span></footer>
+<script>
+"use strict";
+/* =====================================================================
+   EXIF / TIFF core. Pure: no DOM, no network. module.exports at the end
+   so the same code can be unit-tested under node.
+   ===================================================================== */
+var TYPES={
+  1:{n:"BYTE",s:1},2:{n:"ASCII",s:1},3:{n:"SHORT",s:2},4:{n:"LONG",s:4},
+  5:{n:"RATIONAL",s:8},7:{n:"UNDEFINED",s:1},9:{n:"SLONG",s:4},
+  10:{n:"SRATIONAL",s:8},11:{n:"FLOAT",s:4},12:{n:"DOUBLE",s:8}
+};
+/* ---------------- tag name registries ---------------- */
+var NAMES_IFD0={
+  0x00fe:"NewSubfileType",0x00ff:"SubfileType",0x0100:"ImageWidth",0x0101:"ImageLength",0x0102:"BitsPerSample",
+  0x0103:"Compression",0x0106:"PhotometricInterpretation",0x0107:"Thresholding",0x0108:"CellWidth",0x0109:"CellLength",
+  0x010a:"FillOrder",0x010d:"DocumentName",0x010e:"ImageDescription",0x010f:"Make",0x0110:"Model",0x0111:"StripOffsets",
+  0x0112:"Orientation",0x0115:"SamplesPerPixel",0x0116:"RowsPerStrip",0x0117:"StripByteCounts",0x011a:"XResolution",
+  0x011b:"YResolution",0x011c:"PlanarConfiguration",0x0128:"ResolutionUnit",0x0129:"PageNumber",0x012d:"TransferFunction",
+  0x0131:"Software",0x0132:"DateTime",0x013b:"Artist",0x013c:"HostComputer",0x013d:"Predictor",0x014a:"SubIFDs",
+  0x014c:"InkSet",0x0152:"ExtraSamples",0x0153:"SampleFormat",0x015b:"JPEGTables",0x0200:"JPEGProc",
+  0x0201:"JpegIFOffset",0x0202:"JpegIFByteCount",0x0203:"JpegRestartInterval",0x0211:"YCbCrCoefficients",
+  0x0212:"YCbCrSubSampling",0x0213:"YCbCrPositioning",0x0214:"ReferenceBlackWhite",0x02bc:"XMLPacket",
+  0x4746:"Rating",0x4749:"RatingPercent",0x828d:"CFARepeatPatternDim",0x8298:"Copyright",0x8649:"ImageResources",
+  0x8769:"ExifOffset",0x8773:"InterColorProfile",0x8825:"GPSInfo",0x8828:"OECF",0x8829:"Interlace",
+  0x9c9b:"XPTitle",0x9c9c:"XPComment",0x9c9d:"XPAuthor",0x9c9e:"XPKeywords",0x9c9f:"XPSubject"
+};
+var NAMES_EXIF={
+  0x829a:"ExposureTime",0x829d:"FNumber",0x8822:"ExposureProgram",0x8824:"SpectralSensitivity",
+  0x8825:"SubjectArea",0x8827:"ISOSpeedRatings",0x8830:"SensitivityType",0x8831:"StandardOutputSensitivity",
+  0x8832:"RecommendedExposureIndex",0x8833:"ISOSpeed",0x8834:"ISOSpeedLatitudeyyy",0x8835:"ISOSpeedLatitudezzz",
+  0x9000:"ExifVersion",0x9003:"DateTimeOriginal",0x9004:"DateTimeDigitized",0x9010:"OffsetTime",
+  0x9011:"OffsetTimeOriginal",0x9012:"OffsetTimeDigitized",0x9101:"ComponentsConfiguration",
+  0x9102:"CompressedBitsPerPixel",0x9201:"ShutterSpeedValue",0x9202:"ApertureValue",0x9203:"BrightnessValue",
+  0x9204:"ExposureBiasValue",0x9205:"MaxApertureValue",0x9206:"SubjectDistance",0x9207:"MeteringMode",
+  0x9208:"LightSource",0x9209:"Flash",0x920a:"FocalLength",0x9214:"SubjectLocation",0x9215:"ExposureIndex",
+  0x927c:"MakerNote",0x9286:"UserComment",0x9290:"SubsecTime",0x9291:"SubsecTimeOriginal",
+  0x9292:"SubsecTimeDigitized",0x9400:"AmbientTemperature",0x9401:"Humidity",0x9405:"CameraElevationAngle",
+  0xa000:"FlashPixVersion",0xa001:"ColorSpace",0xa002:"ExifImageWidth",0xa003:"ExifImageHeight",
+  0xa004:"RelatedSoundFile",0xa005:"ExifInteroperabilityOffset"
+};
+var NAMES_GPS={
+  0x0000:"GPSVersionID",0x0001:"GPSLatitudeRef",0x0002:"GPSLatitude",0x0003:"GPSLongitudeRef",0x0004:"GPSLongitude",
+  0x0005:"GPSAltitudeRef",0x0006:"GPSAltitude",0x0007:"GPSTimeStamp",0x0008:"GPSSatellites",0x0009:"GPSStatus",
+  0x000a:"GPSMeasureMode",0x000b:"GPSDOP",0x000c:"GPSSpeedRef",0x000d:"GPSSpeed",0x000e:"GPSTrackRef",
+  0x000f:"GPSTrack",0x0010:"GPSImgDirectionRef",0x0011:"GPSImgDirection",0x0012:"GPSMapDatum",
+  0x0013:"GPSDestLatitudeRef",0x0014:"GPSDestLatitude",0x0015:"GPSDestLongitudeRef",0x0016:"GPSDestLongitude",
+  0x0017:"GPSDestBearingRef",0x0018:"GPSDestBearing",0x0019:"GPSDestDistanceRef",0x001a:"GPSDestDistance",
+  0x001b:"GPSProcessingMethod",0x001c:"GPSAreaInformation",0x001d:"GPSDateStamp",0x001e:"GPSDifferential",
+  0x001f:"GPSHPositioningError"
+};
+var NAMES_INTEROP={0x0001:"InteropIndex",0x0002:"InteropVersion",0x1000:"RelatedImageFileFormat",
+  0x1001:"RelatedImageWidth",0x1002:"RelatedImageLength"};
+/* additional EXIF-IFD names sharing the registry above */
+var NAMES_EXIF2={
+  0xa20e:"FocalPlaneXResolution",0xa20f:"FocalPlaneYResolution",0xa210:"FocalPlaneResolutionUnit",
+  0xa217:"SensingMethod",0xa300:"FileSource",0xa301:"SceneType",0xa302:"CFAPattern",0xa401:"CustomRendered",
+  0xa402:"ExposureMode",0xa403:"WhiteBalance",0xa404:"DigitalZoomRatio",0xa405:"FocalLengthIn35mmFilm",
+  0xa406:"SceneCaptureType",0xa407:"GainControl",0xa408:"Contrast",0xa409:"Saturation",
+  0xa40a:"Sharpness",0xa40c:"SubjectDistanceRange",0xa420:"ImageUniqueID",0xa430:"CameraOwnerName",
+  0xa431:"BodySerialNumber",0xa432:"LensSpecification",0xa433:"LensMake",0xa434:"LensModel",
+  0xa435:"LensSerialNumber",0xa460:"CompositeImage",0xa500:"Gamma"
+};
+var NAME_TABLES={IFD0:NAMES_IFD0,IFD1:NAMES_IFD0,SUBIFD:NAMES_IFD0,
+  EXIF:assign(assign({},NAMES_EXIF),NAMES_EXIF2),GPS:NAMES_GPS,INTEROP:NAMES_INTEROP};
+function assign(t,s){if(s)for(var k in s)if(Object.prototype.hasOwnProperty.call(s,k))t[k]=s[k];return t;}
+/* ---------------- value registries (TIFF 6.0 / CIPA DC-008) ---------------- */
+var ENUMS={
+  0x0103:{1:"Uncompressed",6:"JPEG",7:"JPEG (old JPEG)",8:"Deflate",32773:"PackBits"},
+  0x0106:{0:"WhiteZero",1:"BlackZero",2:"RGB",3:"RGB palette",4:"Transparency mask",5:"CMYK",6:"YCbCr",8:"CIELab",9:"Multichannel"},
+  0x0112:{1:"1 (normal)",2:"2 (mirror horizontal)",3:"3 (rotate 180)",4:"4 (mirror vertical)",
+    5:"5 (mirror horizontal + rotate 270 CW)",6:"6 (rotate 90 CW)",7:"7 (mirror horizontal + rotate 90 CW)",8:"8 (rotate 270 CW)"},
+  0x011c:{1:"Contiguous",2:"Separated"},
+  0x0128:{1:"None",2:"Inches",3:"Centimetres"},
+  0x0213:{1:"Centred",2:"Co-sited"},
+  0x8822:{0:"Not defined",1:"Manual",2:"Program AE",3:"Aperture priority",4:"Shutter priority",5:"Creative programme",
+    6:"Action programme",7:"Portrait",8:"Landscape",9:"Bulb"},
+  0x8830:{0:"Not defined",1:"Standard output sensitivity",2:"Recommended exposure index",3:"ISO speed",4:"Combination"},
+  0x9207:{0:"Unknown",1:"Average",2:"Centre-weighted",3:"Spot",4:"Multi-spot",5:"Pattern",6:"Partial",255:"Other"},
+  0x9208:{0:"Unknown",1:"Daylight",2:"Fluorescent",3:"Tungsten (incandescent)",4:"Flash",5:"Fine weather",
+    6:"Cloudy weather",7:"Shade",8:"Daylight fluorescent D 5700-7100K",9:"Daylight white fluorescent N 4600-5499K",
+    10:"Daylight fluorescent W 3900-4499K",11:"Fluorescent WW 3000-3900K",13:"Standard light A",
+    14:"Standard light B",15:"Standard light C",16:"D55",17:"D65",18:"D75",24:"Custom",255:"Other"},
+  0xa001:{1:"sRGB",2:"Undefined RGB",65535:"Reserved"},
+  0xa210:{1:"None",2:"Inches",3:"Centimetres"},
+  0xa217:{1:"Not defined",2:"One-chip colour area",3:"Two-chip colour area",4:"Three-chip colour area",
+    5:"Colour sequential area",7:"Trilinear sensor",8:"Colour sequential linear"},
+  0xa300:{3:"DSC"},0xa301:{1:"Directly photographed"},
+  0xa401:{0:"Normal",1:"Custom"},0xa402:{0:"Auto",1:"Manual",2:"Auto bracket"},
+  0xa403:{0:"Auto",1:"Manual"},
+  0xa406:{0:"Standard",1:"Landscape",2:"Portrait",3:"Night scene"},
+  0xa407:{0:"None",1:"High",2:"Low",3:"High gain",4:"Low gain"},
+  0xa408:{0:"Normal",1:"Soft",2:"Hard"},0xa409:{0:"Normal",1:"Low",2:"High"},0xa40a:{0:"Normal",1:"Soft",2:"Hard"},
+  0xa40c:{0:"Not defined",1:"Macro",2:"Close view",3:"Distant view"},
+  0x0005:{0:"Above sea level",1:"Below sea level"}
+};
+var FLASH_BITS=[[0x01,"fired"],[0x02,"return detected"],[0x04,"fill light"],[0x10,"external flash"],
+  [0x20,"auto mode"],[0x40,"image flash mode"],[0x80,"flash mode set manually"]];
+/* IFD-pointer tags per IFD kind. 0x8825 is GPSInfo only in IFD0/IFD1; in the Exif IFD it is
+   SubjectArea, and 0x8773 in IFD0 is InterColorProfile, so neither is followed there. */
+var POINTER_TABLES={
+  IFD0:{0x8769:"EXIF",0x8825:"GPS",0x014a:"SUBIFD"},
+  IFD1:{0x8769:"EXIF",0x8825:"GPS",0x014a:"SUBIFD"},
+  SUBIFD:{0x8769:"EXIF",0x8825:"GPS",0x014a:"SUBIFD"},
+  EXIF:{0xa005:"INTEROP"},
+  GPS:{},INTEROP:{}
+};
+var UNITS={0x829a:"s",0x920a:"mm",0x9206:"m",0xa404:"ratio",0x011a:"per resolution unit",0x011b:"per resolution unit",
+  0xa20e:"per focal plane unit",0xa20f:"per focal plane unit",0x9202:"APER",0x9201:"AV",0x9203:"SV"};
+var MAX_IFDS=16,MAX_TAGS_PER_IFD=4096,MAX_COUNT=1048576,MAX_DEPTH=8;
+
+/* ---------------- byte helpers ---------------- */
+function toBytes(x){
+  if(x instanceof Uint8Array)return x;
+  if(x instanceof ArrayBuffer)return new Uint8Array(x);
+  if(x&&typeof x.length==="number")return new Uint8Array(x);
+  throw new TypeError("expected Uint8Array or ArrayBuffer");
+}
+function hex(id){var s=id.toString(16).toUpperCase();while(s.length<4)s="0"+s;return "0x"+s;}
+function Reader(bytes,littleEndian){
+  var v=toBytes(bytes);
+  this.u=v;this.len=v.length;
+  this.dv=new DataView(v.buffer,v.byteOffset,v.byteLength);
+  this.le=!!littleEndian;
+}
+Reader.prototype.slice=function(i,n){
+  if(!(i>=0)||!(n>=0)||i+n>this.len)
+    throw new RangeError("bytes "+i+".."+(i+n)+" lie outside the "+this.len+"-byte block");
+  return this.u.subarray(i,i+n);
+};
+Reader.prototype.u16=function(i){this.slice(i,2);return this.dv.getUint16(i,this.le);};
+Reader.prototype.u32=function(i){this.slice(i,4);return this.dv.getUint32(i,this.le);};
+Reader.prototype.i16=function(i){this.slice(i,2);return this.dv.getInt16(i,this.le);};
+Reader.prototype.i32=function(i){this.slice(i,4);return this.dv.getInt32(i,this.le);};
+Reader.prototype.f32=function(i){this.slice(i,4);return this.dv.getFloat32(i,this.le);};
+Reader.prototype.f64=function(i){this.slice(i,8);return this.dv.getFloat64(i,this.le);};
+
+/* ---------------- value decoding ---------------- */
+function readValues(r,type,count,off){
+  var t=TYPES[type];
+  if(!t)throw new RangeError("unknown field type "+type);
+  var n=t.s*count,out=[],i,b;
+  if(n>0)r.slice(off,n);
+  if(t.n==="ASCII"){b=r.slice(off,count);var s="";for(i=0;i<b.length;i++){if(b[i]===0)break;s+=String.fromCharCode(b[i]);}return[s];}
+  if(t.n==="BYTE"||t.n==="UNDEFINED"){b=r.slice(off,count);for(i=0;i<count;i++)out.push(b[i]);return out;}
+  for(i=0;i<count;i++){
+    var p=off+i*t.s;
+    if(t.n==="SHORT")out.push(r.u16(p));
+    else if(t.n==="LONG")out.push(r.u32(p));
+    else if(t.n==="SLONG")out.push(r.i32(p));
+    else if(t.n==="RATIONAL")out.push([r.u32(p),r.u32(p+4)]);
+    else if(t.n==="SRATIONAL")out.push([r.i32(p),r.i32(p+4)]);
+    else if(t.n==="FLOAT")out.push(r.f32(p));
+    else out.push(r.f64(p));
+  }
+  return out;
+}
+function trimTailNul(vals){var v=vals.slice();while(v.length&&v[v.length-1]===0)v.pop();return v;}
+function asciiOf(vals){var s="";for(var i=0;i<vals.length;i++){if(vals[i]===0)break;s+=String.fromCharCode(vals[i]);}return s;}
+function printable(vals){
+  if(!vals.length)return false;
+  for(var i=0;i<vals.length;i++){var b=vals[i];if(b===0)continue;if(b===0x09||b===0x0a||b===0x0d)continue;if(b<0x20||b>0x7e)return false;}
+  return true;
+}
+function hexBytes(vals,limit){
+  var l=Math.min(vals.length,limit||8),o=[];
+  for(var i=0;i<l;i++)o.push((vals[i]<16?"0":"")+vals[i].toString(16).toUpperCase());
+  return o.join(" ")+(vals.length>l?" … (+"+(vals.length-l)+" bytes)":"");
+}
+function numText(v){return typeof v!=="number"?String(v):Number.isInteger(v)?String(v):String(Math.round(v*1e6)/1e6);}
+function decText(q){
+  if(Number.isInteger(q))return String(q);
+  var s=q.toFixed(Math.abs(q)<1?6:4);
+  return s.replace(/0+$/,"").replace(/\.$/,"");
+}
+function rationalText(pr){
+  var n=pr[0],d=pr[1];
+  if(d===0)return n+"/0 (division by zero in the file)";
+  return n+"/"+d+" (= "+decText(n/d)+")";
+}
+function joinList(vals,limit){
+  if(vals.length<=limit)return vals.join(", ");
+  return vals.slice(0,limit).join(", ")+", … (+"+(vals.length-limit)+" more)";
+}
+function describeFlash(v){
+  var parts=[];
+  for(var i=0;i<FLASH_BITS.length;i++)if(v&FLASH_BITS[i][0])parts.push(FLASH_BITS[i][1]);
+  return v===0?" (flash did not fire)":parts.length?" ("+parts.join(", ")+")":" (undecoded bit pattern)";
+}
+function describeEnum(id,vals){
+  if(vals.length!==1||typeof vals[0]!=="number")return "";
+  if(id===0x9209)return describeFlash(vals[0]);
+  var e=ENUMS[id];
+  if(!e)return "";
+  var name=e[vals[0]];
+  return name==null?"":" ("+name+")";
+}
+function decodeUserComment(bytes){
+  var head=asciiOf(Array.prototype.slice.call(bytes.subarray(0,8)));
+  var body=bytes.subarray(8),i,s;
+  if(/^ASCII/.test(head)){s="";for(i=0;i<body.length;i++){if(body[i]===0)break;s+=String.fromCharCode(body[i]);}return{charset:"ASCII",text:s};}
+  if(/^JIS/.test(head)){s="";for(i=0;i<body.length;i++){if(body[i]===0)break;s+=String.fromCharCode(body[i]);}return{charset:"JIS",text:s};}
+  if(/^UNICODE/.test(head)){
+    try{return{charset:"UNICODE (UTF-16 little-endian assumed)",
+      text:new TextDecoder("utf-16le").decode(body).replace(/\u0000+$/,"")};}
+    catch(e){return{charset:"UNICODE",text:hexBytes(Array.prototype.slice.call(body),16)};}
+  }
+  if(!head){try{return{charset:"no charset id",text:new TextDecoder("utf-8").decode(body).replace(/\u0000+$/,"")};}
+    catch(e2){return{charset:"no charset id",text:hexBytes(Array.prototype.slice.call(body),16)};}}
+  return{charset:"unknown id '"+head+"'",text:hexBytes(Array.prototype.slice.call(body),16)};
+}
+/* Build a tag record. Offsets (entry.valueOffset) are relative to the TIFF block start. */
+function formatEntry(r,entry,tag){
+  var t=TYPES[entry.type];
+  tag.typeName=t?t.n:"INVALID";
+  var size=t?t.s*entry.count:0;
+  var bytes;
+  try{bytes=r.slice(entry.dataAt,Math.max(size,Math.min(4,r.len-entry.dataAt)));}
+  catch(e){tag.value="unreadable: "+e.message;tag.raw=[];return tag;}
+  if(!t){
+    tag.value="field type 0x"+entry.type.toString(16).toUpperCase()+" is not a TIFF type; raw bytes: "+
+      hexBytes(Array.prototype.slice.call(r.slice(entry.dataAt,4)),4);
+    tag.raw=Array.prototype.slice.call(r.slice(entry.dataAt,4));
+    return tag;
+  }
+  var vals;
+  try{vals=readValues(r,entry.type,entry.count,entry.dataAt);}
+  catch(e){tag.value="value not readable: "+e.message;tag.raw=[];return tag;}
+  tag.raw=vals.map(function(v){return Array.isArray(v)?v.slice():v;});
+  var id=entry.id,unit=UNITS[id];
+  if(t.n==="ASCII"){tag.value=(vals[0]===""?"(empty string)":JSON.stringify(vals[0]))+" {"+entry.count+" byte field}";return tag;}
+  if(t.n==="RATIONAL"||t.n==="SRATIONAL"){
+    tag.value=vals.map(rationalText).join(" · ")+(unit?" ["+unit+"]":"");
+    return tag;
+  }
+  if(t.n==="UNDEFINED"||t.n==="BYTE"){
+    if(id===0x9286){var uc=decodeUserComment(r.slice(entry.dataAt,entry.count));
+      tag.value=JSON.stringify(uc.text)+" {charset "+uc.charset+", "+entry.count+" bytes}";return tag;}
+    if(id===0x927c||id===0x8828||id===0xa302||id===0x828d){
+      tag.value="("+entry.count+" bytes, vendor payload not decoded) starts with "+hexBytes(vals,12);return tag;}
+    var pr=trimTailNul(vals);
+    if(printable(pr)){var s=asciiOf(pr);
+      tag.value=JSON.stringify(s)+" {"+entry.count+" byte field}";return tag;}
+    tag.value=hexBytes(vals,16);return tag;
+  }
+  tag.value=joinList(vals.map(numText),12)+describeEnum(id,vals)+(unit&&vals.length===1?" ["+unit+"]":"");
+  return tag;
+}
+/* ---------------- IFD parsing ---------------- */
+function parseIfd(r,off,label,nameKey){
+  var res={label:label,nameKey:nameKey,offset:off,tags:[],errors:[],count:0,next:null};
+  if(off<0||off+2>r.len){res.errors.push(label+": IFD offset "+off+" is outside the "+r.len+"-byte TIFF block.");return res;}
+  var count=r.u16(off);
+  if(count>MAX_TAGS_PER_IFD){res.errors.push(label+": implausible entry count "+count+" (> "+MAX_TAGS_PER_IFD+"); the IFD body is not read.");return res;}
+  var bodyEnd=off+2+count*12;
+  if(bodyEnd+2>r.len){
+    var fit=Math.max(0,Math.floor((r.len-off-2)/12));
+    res.errors.push(label+": "+count+" entries would need bytes up to "+bodyEnd+" but the block ends at "+r.len+" — only "+fit+" complete entries are readable.");
+    count=fit;bodyEnd=off+2+count*12;
+  }
+  res.count=count;
+  if(bodyEnd+4<=r.len)res.next=r.u32(bodyEnd);
+  var table=NAME_TABLES[nameKey]||NAMES_IFD0;
+  for(var i=0;i<count;i++){
+    var eo=off+2+i*12;
+    var id=r.u16(eo),type=r.u16(eo+2),cn=r.u32(eo+4);
+    var t=TYPES[type],size=t?t.s*cn:0;
+    var tag={ifd:label,nameKey:nameKey,id:id,hex:hex(id),typeNum:type,typeName:t?t.n:"INVALID",count:cn,
+      entryOffset:eo,inline:false,valueOffset:null,raw:[],value:""};
+    tag.name=table[id]||(hex(id)+" (unknown)");
+    tag.known=Object.prototype.hasOwnProperty.call(table,id);
+    if(cn>MAX_COUNT){tag.value="implausible count "+cn+"; value not read.";res.tags.push(tag);continue;}
+    var inlineRead=(t&&size<=4);
+    var dataAt=inlineRead?eo+8:0;
+    if(!inlineRead){
+      if(size===0){tag.value="zero-length value (offset field read as 0).";tag.inline=true;res.tags.push(tag);continue;}
+      dataAt=r.u32(eo+8);
+      tag.valueOffset=dataAt;
+    } else tag.inline=true;
+    formatEntry(r,{id:id,type:type,count:cn,dataAt:dataAt},tag);
+    res.tags.push(tag);
+  }
+  return res;
+}
+function findTag(tags,id){for(var i=0;i<tags.length;i++)if(tags[i].id===id)return tags[i];return null;}
+function pointerOffsets(tag){
+  if(!tag||tag.raw==null)return [];
+  var out=[];
+  for(var i=0;i<tag.raw.length;i++)if(typeof tag.raw[i]==="number"&&tag.raw[i]>0&&tag.raw[i]<1<<30)out.push(tag.raw[i]);
+  return out;
+}
+function walkIfd(r,off,label,nameKey,depth,state){
+  var sig=nameKey+"@"+off;
+  if(state.seen[sig]){state.errors.push(label+" at byte "+off+" was already parsed; ignored to break the IFD loop.");return null;}
+  if(depth>MAX_DEPTH){state.errors.push(label+" at byte "+off+" is nested "+depth+" IFDs deep; stopped.");return null;}
+  if(state.ifds.length>=MAX_IFDS){state.errors.push("Stopped after "+MAX_IFDS+" IFDs.");return null;}
+  state.seen[sig]=1;
+  var res=parseIfd(r,off,label,nameKey);
+  state.ifds.push(res);
+  state.errors=state.errors.concat(res.errors);
+  var ptr=POINTER_TABLES[nameKey]||{};
+  Object.keys(ptr).forEach(function(idStr){
+    var id=parseInt(idStr,10),kind=ptr[idStr];
+    var offs=pointerOffsets(findTag(res.tags,id));
+    offs.forEach(function(o,idx){
+      var subLabel=kind+(offs.length>1?" #"+(idx+1):"")+" (from "+label+")";
+      var sub=walkIfd(r,o,subLabel,kind==="SUBIFD"?"SUBIFD":kind,depth+1,state);
+      if(!sub)return;
+      if(kind==="EXIF"&&!state.exifIfd)state.exifIfd=sub.tags;
+      if(kind==="GPS"&&!state.gpsIfd)state.gpsIfd=sub.tags;
+    });
+  });
+  return res;
+}
+function parseTiff(bytes,tiffStart){
+  var state={ok:false,format:null,byteOrder:null,tiffStart:tiffStart||0,ifds:[],errors:[],notes:[],
+    thumbnail:null,summary:{},seen:{},gpsIfd:null,exifIfd:null,tagTotal:0};
+  var all=toBytes(bytes),start=state.tiffStart;
+  if(start+8>all.length){state.errors.push("Too short to hold a TIFF header ("+all.length+" bytes).");return state;}
+  var b0=all[start],b1=all[start+1],le;
+  if(b0===0x49&&b1===0x49)le=true;else if(b0===0x4d&&b1===0x4d)le=false;
+  else{state.errors.push("No TIFF byte-order mark: bytes are 0x"+b0.toString(16)+" 0x"+b1.toString(16)+", expected 'II' (little-endian) or 'MM' (big-endian).");return state;}
+  var probe=new Reader(all.subarray(start),le);
+  var magic=probe.u16(2);
+  if(magic!==42){
+    state.errors.push(magic===43||magic===44?
+      "BigTIFF (version "+magic+") is not supported by this reader — only classic TIFF/EXIF version 42."
+      :"Unexpected TIFF version "+magic+" (expected 42).");
+    return state;
+  }
+  state.ok=true;
+  state.byteOrder=le?"II (little-endian)":"MM (big-endian)";
+  var first=probe.u32(4);
+  var root=walkIfd(probe,first,"IFD0","IFD0",0,state);
+  var next=root?root.next:null,chain=1;
+  while(next!=null&&next!==0&&chain<4){
+    if(next<0){break;}
+    var res=walkIfd(probe,next,"IFD"+chain,"IFD"+chain===null?"IFD0":"IFD1",chain,state);
+    if(!res)break;
+    next=res.next;chain++;
+  }
+  detectThumbnail(state);
+  summarise(state);
+  return state;
+}
+function detectThumbnail(state){
+  for(var i=state.ifds.length-1;i>=0;i--){
+    var ifd=state.ifds[i];
+    if(ifd.nameKey==="EXIF"||ifd.nameKey==="GPS"||ifd.nameKey==="INTEROP")continue;
+    var to=findTag(ifd.tags,0x0201),tb=findTag(ifd.tags,0x0202);
+    if(to&&typeof to.raw[0]==="number"&&tb&&typeof tb.raw[0]==="number"&&tb.raw[0]>0){
+      state.thumbnail={ifd:ifd.label,offset:to.raw[0],length:tb.raw[0]};
+      return;
+    }
+  }
+}
+function ifdTags(state,nameKeys){
+  for(var i=0;i<state.ifds.length;i++)for(var k=0;k<nameKeys.length;k++)
+    if(state.ifds[i].nameKey===nameKeys[k])return state.ifds[i].tags;
+  return [];
+}
+function readNum(state,keys,id){var t=findTag(ifdTags(state,keys),id);return t&&typeof t.raw[0]==="number"?t.raw[0]:null;}
+function readStr(state,keys,id){var t=findTag(ifdTags(state,keys),id);return t&&t.typeName==="ASCII"?t.raw[0]:null;}
+function readRat(state,keys,id){var t=findTag(ifdTags(state,keys),id);return t&&Array.isArray(t.raw[0])?t.raw[0]:null;}
+function gpsRef(tags,id){var t=findTag(tags,id);return t&&typeof t.raw[0]==="string"?t.raw[0]:null;}
+function gpsRats(tags,id){var t=findTag(tags,id);return t&&Array.isArray(t.raw[0])?t.raw:null;}
+function dmsToDecimal(ref,dms){
+  if(!dms||dms.length<3)return null;
+  if(dms.some(function(p){return !p[1];}))return null;
+  var v=dms[0][0]/dms[0][1]+dms[1][0]/dms[1][1]/60+dms[2][0]/dms[2][1]/3600;
+  if(ref==="S"||ref==="W")v=-v;
+  return Math.round(v*1e8)/1e8;
+}
+function summarise(state){
+  var M=["IFD0","IFD1","SUBIFD"],E=["EXIF"],s=state.summary;
+  s.width=readNum(state,M,0x0100);s.height=readNum(state,M,0x0101);
+  s.exifWidth=readNum(state,E,0xa002);s.exifHeight=readNum(state,E,0xa003);
+  s.make=readStr(state,M,0x010f);s.model=readStr(state,M,0x0110);
+  s.software=readStr(state,M,0x0131);s.artist=readStr(state,M,0x013b);
+  s.copyright=readStr(state,M,0x8298);s.description=readStr(state,M,0x010e);
+  s.dateTime=readStr(state,M,0x0132);s.orientation=readNum(state,M,0x0112);
+  s.xResolution=readRat(state,M,0x011a);s.yResolution=readRat(state,M,0x011b);
+  s.resolutionUnit=readNum(state,M,0x0128);
+  s.dateTimeOriginal=readStr(state,E,0x9003);s.dateTimeDigitized=readStr(state,E,0x9004);
+  s.offsetTime=readStr(state,E,0x9010);s.offsetTimeOriginal=readStr(state,E,0x9011);
+  s.exposureTime=readRat(state,E,0x829a);s.fNumber=readRat(state,E,0x829d);
+  s.iso=readNum(state,E,0x8827);s.focalLength=readRat(state,E,0x920a);
+  s.focalLength35=readNum(state,E,0xa405);s.shutterValue=readRat(state,E,0x9201);
+  s.apertureValue=readRat(state,E,0x9202);s.exposureBias=readRat(state,E,0x9204);
+  s.meteringMode=readNum(state,E,0x9207);s.exposureProgram=readNum(state,E,0x8822);
+  s.lightSource=readNum(state,E,0x9208);s.flash=readNum(state,E,0x9209);
+  s.colorSpace=readNum(state,E,0xa001);s.lensModel=readStr(state,E,0xa434);s.lensMake=readStr(state,E,0xa433);
+  s.exifVersion=null;
+  var ev=findTag(ifdTags(state,E),0x9000);
+  if(ev&&ev.typeName==="UNDEFINED"&&typeof ev.raw[0]==="string")s.exifVersion=ev.raw[0];
+  var g=state.gpsIfd;
+  if(g){
+    s.gpsLat=dmsToDecimal(gpsRef(g,0x0001),gpsRats(g,0x0002));
+    s.gpsLon=dmsToDecimal(gpsRef(g,0x0003),gpsRats(g,0x0004));
+    s.gpsLatRef=gpsRef(g,0x0001);s.gpsLonRef=gpsRef(g,0x0003);
+    var alt=gpsRats(g,0x0006),ref=gpsRef(g,0x0005);
+    if(alt&&alt[0]&&alt[0][1]){
+      var m=alt[0][0]/alt[0][1];
+      s.gpsAltitude=(ref==="1")?-m:m;s.gpsAltitudeRef=ref==null?"0":ref;
+    }
+    s.gpsDate=gpsRef(g,0x001d);s.gpsMapDatum=gpsRef(g,0x0012);
+    var ts=gpsRats(g,0x0007);
+    if(ts&&ts.length===3)s.gpsTime=ts.map(function(p){return p[1]?decText(p[0]/p[1]):"0";}).join(":");
+  }
+  state.tagTotal=0;
+  for(var i=0;i<state.ifds.length;i++)state.tagTotal+=state.ifds[i].tags.length;
+}
+/* ---------------- JPEG carrier ---------------- */
+var JPEG_MARKERS={0xc0:"SOF0 (baseline DCT)",0xc1:"SOF1 (extended DCT)",0xc2:"SOF2 (progressive DCT)",0xc3:"SOF3",
+  0xc4:"DHT",0xc5:"SOF5",0xc6:"SOF6",0xc7:"SOF7",0xc8:"JPG",0xc9:"SOF9",0xca:"SOF10",0xcb:"SOF11",
+  0xcc:"DAC",0xd0:"RST0",0xd1:"RST1",0xd2:"RST2",0xd3:"RST3",0xd4:"RST4",0xd5:"RST5",0xd6:"RST6",0xd7:"RST7",
+  0xd8:"SOI",0xd9:"EOI",0xda:"SOS",0xdb:"DQT",0xdc:"DNL",0xdd:"DRI",0xde:"DHP",0xdf:"EXP",
+  0xe0:"APP0 (JFIF?)",0xe1:"APP1 (Exif/XMP?)",0xe2:"APP2 (ICC?)",0xe3:"APP3",0xe4:"APP4",0xe5:"APP5",0xe6:"APP6",
+  0xe7:"APP7",0xe8:"APP8",0xe9:"APP9",0xea:"APP10",0xeb:"APP11",0xec:"APP12 (Ducky?)",0xed:"APP13 (Photoshop IRB?)",
+  0xee:"APP14 (Adobe?)",0xef:"APP15",0xfe:"COM (comment)",0x01:"TEM"};
+function scanJpeg(u){
+  var v=toBytes(u),out={segments:[],exifTiffStart:null,notes:[],errors:[],scanEnd:null};
+  if(v.length<2||v[0]!==0xff||v[1]!==0xd8){out.errors.push("Missing JPEG SOI marker (FF D8).");return out;}
+  var p=2;
+  while(p+1<v.length){
+    if(v[p]!==0xff){out.notes.push("Marker sync lost at byte "+p+"; segment scan stopped there.");break;}
+    var m=v[p+1];
+    if(m===0xff){p++;continue;}
+    var name=JPEG_MARKERS[m]||("unassigned marker 0x"+m.toString(16).toUpperCase());
+    if(m===0x01||(m>=0xd0&&m<=0xd9)){
+      out.segments.push({offset:p,marker:m,name:name,length:2});
+      if(m===0xda||m===0xd9){out.scanEnd=p;break;}
+      p+=2;continue;
+    }
+    if(p+3>=v.length){out.errors.push("Truncated marker length at byte "+p+".");break;}
+    var len=(v[p+2]<<8)|v[p+3];
+    if(len<2){out.errors.push("Invalid segment length "+len+" at byte "+p+".");break;}
+    var payload=p+4,span=Math.min(len-2,v.length-payload);
+    var seg={offset:p,marker:m,name:name,length:len,payload:payload,payloadLen:span};
+    if(m===0xe1&&span>=6&&v[payload]===0x45&&v[payload+1]===0x78&&v[payload+2]===0x69&&
+       v[payload+3]===0x66&&v[payload+4]===0&&v[payload+5]===0){
+      seg.isExif=true;seg.name="APP1 (Exif)";
+      if(out.exifTiffStart===null)out.exifTiffStart=payload+6;
+    }
+    if(m===0xc0||m===0xc1||m===0xc2||m===0xc3){
+      if(span>=6){seg.frame={height:(v[payload+1]<<8)|v[payload+2],width:(v[payload+3]<<8)|v[payload+4],components:v[payload+5]};}
+    }
+    out.segments.push(seg);
+    if(m===0xda){out.scanEnd=p;break;}
+    p+=2+len;
+  }
+  return out;
+}
+function firstFrameDims(jp){
+  for(var i=0;i<jp.segments.length;i++)if(jp.segments[i].frame)return jp.segments[i].frame;
+  return null;
+}
+/* ---------------- PNG carrier ---------------- */
+var PNG_CHUNK_NOTES={eXIf:"EXIF profile: a TIFF/IFD stream",tEXt:"latin-1 keyword/text",
+  iTXt:"UTF-8 keyword/text",zTXt:"deflate-compressed keyword/text",pHYs:"physical pixel size",
+  sRGB:"rendering intent",gAMA:"gamma",cHRM:"chromaticities",bKGD:"background",tRNS:"transparency",
+  sBIT:"significant bits",IHDR:"header",IDAT:"image data",PLTE:"palette",IEND:"end",acTL:"animation control (APNG)",
+  fcTL:"frame control (APNG)"};
+function findNul(data,from){for(var i=from;i<data.length;i++)if(data[i]===0)return i;return data.length;}
+function scanPng(u){
+  var v=toBytes(u),out={chunks:[],texts:[],exifStart:null,exifLen:0,width:0,height:0,bitDepth:0,colorType:0,
+    notes:[],errors:[],sawIend:false};
+  var sig=[137,80,78,71,13,10,26,10];
+  for(var i=0;i<8;i++)if(v[i]!==sig[i]){out.errors.push("Not a PNG: the 8-byte signature does not match.");return out;}
+  var p=8,r=new Reader(v,true);
+  while(p+12<=v.length){
+    var len=r.u32(p),type=asciiOf(Array.prototype.slice.call(v.subarray(p+4,p+8)));
+    if(len<0||p+12+len>v.length){out.errors.push("Chunk '"+type+"' at byte "+p+" claims "+len+" data bytes but only "+(v.length-p-12)+" remain; chunk scan stopped.");break;}
+    var entry={type:type,length:len,offset:p,note:PNG_CHUNK_NOTES[type]||"unknown/auxiliary chunk"};
+    if(type==="IDAT"&&out.chunks.some(function(c){return c.type==="IDAT";})){
+      entry.merged=true;out.chunks[out.chunks.length-1].idatExtra=(out.chunks[out.chunks.length-1].idatExtra||0)+12+len;
+      p+=12+len;continue;
+    }
+    out.chunks.push(entry);
+    if(type==="IHDR"){
+      entry.width=r.u32(p+8);entry.height=r.u32(p+12);entry.bitDepth=v[p+16];entry.colorType=v[p+17];
+      entry.detail=entry.width+"×"+entry.height+", depth "+entry.bitDepth+", colour type "+entry.colorType+
+        ", interlace "+v[p+20];
+      out.width=entry.width;out.height=entry.height;out.bitDepth=entry.bitDepth;out.colorType=entry.colorType;
+    }
+    if(type==="eXIf"&&len>0){out.exifStart=p+8;out.exifLen=len;}
+    if(type==="tEXt"||type==="iTXt"||type==="zTXt"){
+      var data=v.subarray(p+8,p+8+len),k=findNul(data,0),key=asciiOf(Array.prototype.slice.call(data.subarray(0,k)));
+      var rec={type:type,keyword:key};
+      if(type==="tEXt"){rec.text=asciiOf(Array.prototype.slice.call(data.subarray(k+1)));rec.compressed=false;}
+      else if(type==="zTXt"){
+        rec.method=data[k+1];
+        rec.payloadStart=p+8+k+2;rec.payloadLen=Math.max(0,len-k-2);
+        rec.compressed=true;rec.needsInflate=true;rec.text="(deflate-compressed — decompressed in the browser)";
+        if(rec.method!==0)rec.errors="unknown compression method "+rec.method;
+      } else {
+        rec.compFlag=data[k+1];rec.method=data[k+2];
+        var l=findNul(data,k+3),lang=asciiOf(Array.prototype.slice.call(data.subarray(k+3,l)));
+        var t=findNul(data,l+1),tkey=asciiOf(Array.prototype.slice.call(data.subarray(l+1,t)));
+        rec.language=lang;rec.translatedKeyword=tkey;
+        rec.payloadStart=p+8+t+1;rec.payloadLen=Math.max(0,len-t-1);
+        if(rec.compFlag===0){rec.compressed=false;rec.text=utf8Of(Array.prototype.slice.call(data.subarray(t+1)));}
+        else{rec.compressed=true;rec.needsInflate=true;rec.text="(deflate-compressed — decompressed in the browser)";}
+      }
+      out.texts.push(rec);
+    }
+    if(type==="pHYs")entry.detail="x "+r.u32(p+8)+", y "+r.u32(p+12)+", unit "+(v[p+16]===1?"metre (so "+Math.round(r.u32(p+8)/39.3701)+" dpi)":"unknown");
+    if(type==="sRGB")entry.detail="rendering intent "+v[p+8];
+    if(type==="gAMA")entry.detail="gamma "+(r.u32(p+8)/100000);
+    if(type==="IEND"){out.sawIend=true;}
+    p+=12+len;
+  }
+  if(!out.sawIend)out.notes.push("No IEND chunk: the PNG looks truncated.");
+  return out;
+}
+function utf8Of(arr){try{return new TextDecoder("utf-8").decode(new Uint8Array(arr)).replace(/\u0000+$/,"");}
+  catch(e){return "(undecodable bytes)";}}
+/* ---------------- top level ---------------- */
+function inspectFile(u,fileName){
+  var v=toBytes(u),res={fileName:fileName||"(unnamed)",size:v.length,format:"Unknown",notes:[],errors:[],
+    parsed:null,jpeg:null,png:null,exifBlocks:0,thumbnailBytes:null,thumbnailFormat:null,thumbnailIfd:null};
+  if(v.length<4){res.notes.push("The file is smaller than 4 bytes, so no metadata can be present.");return res;}
+  if(v[0]===0xff&&v[1]===0xd8){
+    res.format="JPEG";
+    var jp=scanJpeg(v);res.jpeg=jp;
+    res.errors=res.errors.concat(jp.errors);
+    res.notes=res.notes.concat(jp.notes);
+    if(jp.exifTiffStart!==null){
+      res.exifBlocks=jp.segments.filter(function(s){return s.isExif;}).length;
+      res.parsed=parseTiff(v,jp.exifTiffStart);
+      res.parsed.blockStart=jp.exifTiffStart;
+      extractThumbnail(res,v);
+      if(res.exifBlocks>1)res.notes.push(res.exifBlocks+" APP1/Exif segments were found; only the first is parsed (the standard allows one).");
+    } else {
+      var app1=jp.segments.filter(function(s){return s.marker===0xe1;}).length;
+      res.notes.push("This JPEG has no APP1 'Exif\\0\\0' block, so there is no EXIF/TIFF tag data in it."+
+        (app1?" (An APP1 segment is present but does not start with the Exif header — probably XMP, which is not parsed here.)":""));
+      var f=firstFrameDims(jp);
+      if(f){res.frame=f;res.notes.push("Image size from the start-of-frame marker: "+f.width+"×"+f.height+", "+f.components+" component(s).");}
+    }
+    return res;
+  }
+  if((v[0]===0x49&&v[1]===0x49)||(v[0]===0x4d&&v[1]===0x4d)){
+    res.format="TIFF";
+    res.parsed=parseTiff(v,0);
+    res.parsed.blockStart=0;
+    if(res.parsed.ok)extractThumbnail(res,v);
+    else if(v[2]===43||v[2]===0&&v[3]===43)res.format="BigTIFF";
+    return res;
+  }
+  if(v[0]===137&&v[1]===80&&v[2]===78&&v[3]===71){
+    res.format="PNG";
+    var pn=scanPng(v);res.png=pn;
+    res.errors=res.errors.concat(pn.errors);res.notes=res.notes.concat(pn.notes);
+    if(pn.exifStart!==null){
+      res.parsed=parseTiff(v,pn.exifStart);
+      res.parsed.blockStart=pn.exifStart;
+      res.notes.push("PNG eXIf chunk parsed as a TIFF/IFD stream starting at file byte "+pn.exifStart+".");
+      extractThumbnail(res,v);
+    } else if(pn.texts.length){
+      res.notes.push("No eXIf chunk, so no EXIF tags; "+pn.texts.length+" PNG text chunk(s) were read instead.");
+    } else {
+      res.notes.push("This PNG carries no eXIf and no text chunks: only IHDR/structural information is available.");
+    }
+    return res;
+  }
+  res.notes.push("Unrecognised container. This reader handles JPEG (FF D8), TIFF ('II'/'MM') and PNG. First two bytes: 0x"+
+    v[0].toString(16)+" 0x"+v[1].toString(16)+".");
+  return res;
+}
+function extractThumbnail(res,v){
+  var p=res.parsed;
+  if(!p||!p.ok||!p.thumbnail)return;
+  var base=p.blockStart||0,t=p.thumbnail;
+  var s=base+t.offset,e=Math.min(s+t.length,v.length);
+  if(t.offset<0||e<=s){p.errors.push("Thumbnail data offset "+t.offset+" is outside the block; nothing extracted.");return;}
+  res.thumbnailBytes=v.slice(s,e);
+  res.thumbnailFormat=v[s]===0xff&&v[s+1]===0xd8?"JPEG":"not JPEG (uncompressed or other encoding)";
+  res.thumbnailIfd=t.ifd;
+  res.thumbnailTruncated=e<s+t.length;
+}
+/* inflate for PNG compressed text chunks (browser API; optional) */
+function inflatePngText(bytes,start,len){
+  if(typeof DecompressionStream!=="function")
+    return Promise.resolve("deflate-compressed text: this browser has no DecompressionStream, so it stays undecoded.");
+  if(len<=0)return Promise.resolve("(empty compressed payload)");
+  try{
+    var v=toBytes(bytes).slice(start,start+len);
+    var ds=new DecompressionStream("deflate");
+    return new Response(new Blob([v]).stream().pipeThrough(ds)).arrayBuffer().then(function(out){
+      return utf8Of(Array.prototype.slice.call(new Uint8Array(out)));
+    },function(){return "decompression failed: the zlib stream is corrupt.";});
+  }catch(e){return Promise.resolve("decompression error: "+e.message);}
+}
+if(typeof module!=="undefined")module.exports={
+  TYPES:TYPES,ENUMS:ENUMS,FLASH_BITS:FLASH_BITS,NAMES_IFD0:NAMES_IFD0,NAMES_EXIF:assign({},NAMES_EXIF),
+  NAMES_EXIF2:NAMES_EXIF2,NAMES_GPS:NAMES_GPS,NAMES_INTEROP:NAMES_INTEROP,NAME_TABLES:NAME_TABLES,
+  POINTER_TABLES:POINTER_TABLES,UNITS:UNITS,JPEG_MARKERS:JPEG_MARKERS,PNG_CHUNK_NOTES:PNG_CHUNK_NOTES,
+  Reader:Reader,toBytes:toBytes,hex:hex,readValues:readValues,rationalText:rationalText,asciiOf:asciiOf,
+  printable:printable,decodeUserComment:decodeUserComment,describeFlash:describeFlash,describeEnum:describeEnum,
+  formatEntry:formatEntry,parseIfd:parseIfd,parseTiff:parseTiff,scanJpeg:scanJpeg,scanPng:scanPng,
+  inspectFile:inspectFile,dmsToDecimal:dmsToDecimal,findTag:findTag,gpsRef:gpsRef,gpsRats:gpsRats,
+  firstFrameDims:firstFrameDims,utf8Of:utf8Of
+};
+</script>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-exif-viewer-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-exif-viewer-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+/* ================= UI ================= */
+var $=function(id){return document.getElementById(id);};
+var current=null;
+var ORIENTATION={1:"normal",2:"mirror horizontal",3:"rotate 180°",4:"mirror vertical",
+  5:"mirror horizontal + rotate 270° CW",6:"rotate 90° CW",7:"mirror horizontal + rotate 90° CW",8:"rotate 270° CW"};
+function setStatus(t,c){var s=$("status");s.textContent=t;s.className=c||"muted";}
+function el(tag,cls,text){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=String(text);return e;}
+function fmtBytes(n){
+  if(n==null)return"—";
+  if(n<1024)return n+" B";
+  if(n<1048576)return (n/1024).toFixed(n<10240?2:1)+" KiB ("+n+" bytes)";
+  return (n/1048576).toFixed(2)+" MiB ("+n+" bytes)";
+}
+function rat(v){return v&&Array.isArray(v)?v[0]+"/"+v[1]:null;}
+function fillFacts(dlt,pairs){
+  dlt.textContent="";
+  pairs=pairs.filter(function(p){return p[1]!=null&&p[1]!=="";});
+  if(!pairs.length){dlt.appendChild(el("dt",null,"—"));dlt.appendChild(el("dd","muted","Nothing recorded."));return;}
+  pairs.forEach(function(p){dlt.appendChild(el("dt",null,p[0]));dlt.appendChild(el("dd",null,p[1]));});
+}
+function render(res){
+  var ul=$("notes");ul.textContent="";
+  var lines=[];
+  if(res.parsed&&res.parsed.ok)
+    lines.push({t:"Parsed "+res.parsed.byteOrder+": "+res.parsed.tagTotal+" tag entry(ies) in "+res.parsed.ifds.length+" IFD(s).",c:""});
+  if(res.parsed)lines=lines.concat((res.parsed.notes||[]).map(function(s){return{t:s,c:""};}));
+  if(res.parsed)(res.parsed.errors||[]).forEach(function(s){lines.push({t:"Parse issue — "+s,c:"warn"});});
+  res.notes.forEach(function(s){lines.push({t:s,c:/^This JPEG|^This PNG|^Unrecognised|^The file is/.test(s)?"warn":""});});
+  res.errors.forEach(function(s){lines.push({t:"Error — "+s,c:"warn"});});
+  if(!lines.length)lines.push({t:"Parsed without warnings.",c:""});
+  lines.forEach(function(l){var li=el("li",l.c,l.t);ul.appendChild(li);});
+  var s=(res.parsed&&res.parsed.ok&&res.parsed.summary)||{};
+  var w=s.width||res.png&&res.png.width||res.frame&&res.frame.width;
+  var h=s.height||res.png&&res.png.height||res.frame&&res.frame.height;
+  fillFacts($("facts"),[
+    ["File",res.fileName],["Size",fmtBytes(res.size)],["Container",res.format],
+    ["Byte order",res.parsed&&res.parsed.byteOrder],
+    ["TIFF block starts at",(res.parsed&&res.parsed.blockStart!=null)?("byte "+res.parsed.blockStart):null],
+    ["Dimensions",w&&h?(w+" × "+h+" px"+(s.exifWidth&&s.exifHeight&&(s.exifWidth!==w||s.exifHeight!==h)?" (Exif IFD says "+s.exifWidth+" × "+s.exifHeight+")":"")):null],
+    ["Orientation",s.orientation!=null?(s.orientation+" — "+(ORIENTATION[s.orientation]||"value outside 1-8")):null],
+    ["Make",s.make],["Model",s.model],["Software",s.software],["Artist",s.artist],["Copyright",s.copyright],
+    ["Description",s.description],["Lens",s.lensMake&&s.lensModel?(s.lensMake+" "+s.lensModel):s.lensModel],
+    ["DateTime (IFD0)",s.dateTime],["DateTimeOriginal (Exif)",s.dateTimeOriginal],
+    ["DateTimeDigitized (Exif)",s.dateTimeDigitized],["OffsetTime (Exif)",s.offsetTime],
+    ["ExifVersion",s.exifVersion],
+    ["Exposure time",s.exposureTime?(rat(s.exposureTime)+" s"):null],
+    ["ShutterSpeedValue",s.shutterValue?(rat(s.shutterValue)+" AV"):null],
+    ["F number",s.fNumber?(rat(s.fNumber)):null],
+    ["ApertureValue",s.apertureValue?(rat(s.apertureValue)+" BV"):null],
+    ["ISO",s.iso],["Focal length",s.focalLength?(rat(s.focalLength)+" mm"):null],
+    ["35 mm equivalent",s.focalLength35],["Exposure bias",s.exposureBias?(rat(s.exposureBias)+" EV"):null],
+    ["Resolution",s.xResolution&&s.yResolution?(rat(s.xResolution)+" × "+rat(s.yResolution)+" ("+(ENUMS[0x0128][s.resolutionUnit]||"unit unset")+")"):null],
+    ["GPS latitude",s.gpsLat!=null?(s.gpsLat+" ("+(s.gpsLatRef||"?")+")"):null],
+    ["GPS longitude",s.gpsLon!=null?(s.gpsLon+" ("+(s.gpsLonRef||"?")+")"):null],
+    ["GPS altitude",s.gpsAltitude!=null?(s.gpsAltitude+" m"+(s.gpsAltitudeRef==="1"?" below sea level":"")):null],
+    ["GPS date / time",s.gpsDate||s.gpsTime],
+    ["Thumbnail",res.parsed&&res.parsed.thumbnail?
+      (res.thumbnailIfd+" · "+fmtBytes(res.thumbnailBytes?res.thumbnailBytes.length:res.parsed.thumbnail.length)+" · "+(res.thumbnailFormat||"encoding not inspected")+(res.thumbnailTruncated?" · truncated file":"")):null]
+  ]);
+  if(res.parsed&&res.parsed.thumbnail&&res.parsed.thumbnail.offset!=null){
+    $("facts").appendChild(el("dt",null,"Thumbnail offset"));
+    $("facts").appendChild(el("dd","muted","TIFF-relative byte "+res.parsed.thumbnail.offset+" ("+res.parsed.thumbnail.length+" bytes declared)"));
+  }
+  var tb=$("tags").tBodies[0];tb.textContent="";
+  var total=0;
+  if(res.parsed&&res.parsed.ok){
+    res.parsed.ifds.forEach(function(ifd){
+      var tr=document.createElement("tr");tr.className="ifdrow";
+      var td=document.createElement("td");td.colSpan=6;
+      td.textContent=ifd.label+" — entries start at TIFF byte "+ifd.offset+", "+ifd.count+" record(s)"+
+        (ifd.next?", next IFD at byte "+ifd.next:" — chain ends");
+      tr.appendChild(td);tb.appendChild(tr);
+      ifd.tags.forEach(function(t){
+        total++;
+        var row=document.createElement("tr");if(!t.known)row.className="unknown";
+        row.appendChild(el("td","num",String(t.ifd.split(" (")[0])));
+        row.appendChild(el("td","num",t.hex));
+        row.appendChild(el("td","name",t.name));
+        row.appendChild(el("td",null,t.typeName+" (0x"+t.typeNum.toString(16).toUpperCase()+")"));
+        row.appendChild(el("td","num",String(t.count)));
+        row.appendChild(el("td","val",t.value+(t.inline?"":" · value stored at byte "+t.valueOffset)));
+        tb.appendChild(row);
+      });
+    });
+  }
+  if(!total){
+    var tr0=document.createElement("tr"),td0=document.createElement("td");
+    td0.colSpan=6;td0.className="muted";
+    td0.textContent=res.parsed&&res.parsed.ok?"The IFD(s) contain no entries.":
+      "No tags: the file has no parseable EXIF/TIFF block. Its structure is still reported above.";
+    tr0.appendChild(td0);tb.appendChild(tr0);
+  }
+  $("tagcount").textContent=total?("· "+total+" row(s)"):"";
+  var cp=[];
+  if(res.jpeg){
+    cp.push(["Segments before compressed data",res.jpeg.segments.length]);
+    cp.push(["APP1 segments",res.jpeg.segments.filter(function(x){return x.marker===0xe1;}).length+
+      " ("+res.exifBlocks+" with an Exif header)"]);
+    cp.push(["Marker map",res.jpeg.segments.map(function(x){return x.name+" @"+x.offset+(x.length?" ("+x.length+" B)":"");}).slice(0,48).join(" · ")]);
+    if(res.frame)cp.push(["Start-of-frame image",res.frame.width+" × "+res.frame.height+", "+res.frame.components+" component(s)"]);
+  }
+  if(res.png){
+    cp.push(["Chunks",res.png.chunks.map(function(c){return c.type+" ("+c.length+" B"+(c.idatExtra?" +"+c.idatExtra+" chained":"")+")";}).join(" · ")]);
+    cp.push(["Chunk meanings",res.png.chunks.map(function(c){return c.type+": "+c.note+(c.detail?" — "+c.detail:"");}).join(" · ")]);
+    res.png.texts.forEach(function(t){cp.push([t.type+" · "+t.keyword,t.text+(t.compressed?" ["+t.payloadLen+" compressed bytes at "+t.payloadStart+"]":"")]);});
+  }
+  if(res.parsed&&res.parsed.ok)cp.push(["IFD map",res.parsed.ifds.map(function(i){return i.label+"@"+i.offset;}).join(" · ")]);
+  fillFacts($("container"),cp.length?cp:[["Structure","no container parsed yet"]]);
+  var wrap=$("thumbwrap");
+  if(res.thumbUrl)URL.revokeObjectURL(res.thumbUrl);
+  if(res.thumbnailBytes&&res.thumbnailFormat==="JPEG"&&res.thumbnailBytes.length>600){
+    res.thumbUrl=URL.createObjectURL(new Blob([res.thumbnailBytes],{type:"image/jpeg"}));
+    $("thumb").src=res.thumbUrl;
+    $("thumbinfo").textContent=fmtBytes(res.thumbnailBytes.length)+" JPEG stream copied out of "+res.thumbnailIfd+
+      ". It is displayed as stored; colour profile and orientation are not applied.";
+    wrap.style.display="block";
+  } else wrap.style.display="none";
+  $("dlReport").disabled=!(res.parsed&&res.parsed.ok);
+  if(res.parsed&&res.parsed.ok)store.set("last",{name:res.fileName,when:Date.now()});
+}
+function reportText(res){
+  var L=["EXIF Viewer report — "+res.fileName,"Container: "+res.format+" · "+res.size+" bytes"];
+  if(res.parsed&&res.parsed.ok){
+    L.push("Byte order: "+res.parsed.byteOrder,"");
+    res.parsed.ifds.forEach(function(ifd){
+      L.push("["+ifd.label+"] entries at TIFF byte "+ifd.offset+", next IFD "+(ifd.next||"none"));
+      ifd.tags.forEach(function(t){L.push("  "+t.hex+"  "+t.name+"  "+t.typeName+" x"+t.count+"  "+t.value);});
+      L.push("");
+    });
+  }
+  L.push("Notes:");res.notes.forEach(function(n){L.push("  - "+n);});
+  if(res.errors.length){L.push("Errors:");res.errors.forEach(function(n){L.push("  - "+n);});}
+  if(res.parsed&&res.parsed.errors.length){L.push("Parse issues:");res.parsed.errors.forEach(function(n){L.push("  - "+n);});}
+  return L.join("\n");
+}
+function loadBytes(file){
+  return new Promise(function(resolve,reject){
+    var fr=new FileReader();
+    fr.onload=function(){resolve(new Uint8Array(fr.result));};
+    fr.onerror=function(){reject(new Error("the file could not be read ("+(fr.error&&fr.error.name||"I/O error")+")."));};
+    fr.readAsArrayBuffer(file);
+  });
+}
+async function handleFile(file){
+  if(!file)return;
+  setStatus("Reading "+file.name+" …");
+  try{
+    var bytes=await loadBytes(file);
+    var res=inspectFile(bytes,file.name);
+    if(res.png&&res.png.texts.some(function(t){return t.needsInflate;}))setStatus("Decompressing PNG text chunks …");
+    var jobs=res.png?res.png.texts.filter(function(t){return t.needsInflate;}).map(function(t){
+      return inflatePngText(bytes,t.payloadStart,t.payloadLen).then(function(txt){t.text=txt;});
+    }):[];
+    await Promise.all(jobs);
+    current=res;
+    $("fname").textContent=file.name+" · "+fmtBytes(file.size)+" · "+(file.type||"no MIME type reported");
+    render(res);
+    setStatus(res.parsed&&res.parsed.ok?("Parsed "+res.parsed.tagTotal+" tag entry(ies) from "+res.parsed.ifds.length+" IFD(s)."):
+      "No EXIF/TIFF tag block was found or it could not be parsed — see the notes.",res.parsed&&res.parsed.ok?"ok":"muted");
+  }catch(e){setStatus("Error: "+e.message,"err");}
+}
+function downloadReport(){
+  if(!current||!(current.parsed&&current.parsed.ok))return;
+  var blob=new Blob([reportText(current)],{type:"text/plain;charset=utf-8"});
+  var url=URL.createObjectURL(blob),a=document.createElement("a");
+  a.href=url;a.download=(current.fileName||"metadata").replace(/\.[^.]*$/,"")+"-exif-report.txt";
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(url);},5000);
+  setStatus("Text report downloaded.","ok");
+}
+function init(){
+  var dz=$("drop"),fi=$("fileIn");
+  fi.addEventListener("change",function(){handleFile(fi.files&&fi.files[0]);});
+  $("dlReport").addEventListener("click",downloadReport);
+  ["dragover","dragenter"].forEach(function(ev){dz.addEventListener(ev,function(e){e.preventDefault();dz.classList.add("over");});});
+  ["dragleave","drop"].forEach(function(ev){dz.addEventListener(ev,function(e){e.preventDefault();dz.classList.remove("over");});});
+  dz.addEventListener("drop",function(e){
+    var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+    if(f)handleFile(f);else setStatus("The drop did not carry a file.","err");
+  });
+  document.body.addEventListener("dragover",function(e){e.preventDefault();});
+  var last=store.get("last",null);
+  if(last&&last.name){
+    var li=el("li","muted","Last file inspected in this browser: "+last.name+" (the file itself is not stored).");
+    $("notes").textContent="";$("notes").appendChild(li);
+  }
+  if(typeof DecompressionStream!=="function"){
+    $("foot").textContent=$("foot").textContent+" This browser has no DecompressionStream, so compressed PNG text chunks stay undecoded.";
+  }
+  if(!store.persistent)$("foot").textContent=$("foot").textContent+" Settings are session only, not persisted (embedded sandbox).";
+}
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CSV Viewer</title>
+<script type="application/nucleus+json">
+{"id":"csv-viewer","name":"CSV Viewer","cat":"Data & Calculations","desc":"Inspect, sort and filter CSV files locally.","icon":"files","w":860,"h":560}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --radius:10px; --font:13px;
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;flex-direction:column}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.on{border-color:var(--accent);background:var(--accent);color:#fff}
+input[type=text],input[type=number],select{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* ---------- app ---------- */
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.drop{border:2px dashed var(--border);border-radius:var(--radius);padding:26px;text-align:center;display:flex;flex-direction:column;gap:10px;align-items:center}
+.drop.over{border-color:var(--accent);background:var(--hover)}
+.prog{height:6px;border-radius:3px;background:var(--panel);overflow:hidden;width:min(420px,80vw)}
+.prog>div{height:100%;background:var(--accent);width:0%}
+.tablebox{flex:1;min-height:200px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius)}
+table.csv{border-collapse:collapse;font-size:12px;min-width:100%}
+table.csv th{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);padding:6px 8px;text-align:left;white-space:nowrap;z-index:2}
+table.csv th button{background:none;border:none;color:inherit;font:inherit;cursor:pointer;padding:0;font-weight:600}
+table.csv td{border-bottom:1px solid var(--panel);padding:4px 8px;white-space:nowrap;max-width:280px;overflow:hidden;text-overflow:ellipsis}
+table.csv tr:nth-child(even) td{background:var(--panel)}
+table.csv tfoot td{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--border);font-size:11px;color:var(--muted);white-space:normal;max-width:none}
+.filters th{position:sticky;top:31px;padding:2px 4px;z-index:1}
+.filters input{width:100%;min-width:60px;padding:4px}
+.badge{border:1px solid var(--border);border-radius:99px;padding:0 6px;font-size:10px;color:var(--muted);margin-left:4px}
+.badge.num{color:var(--accent);border-color:var(--accent)}
+.pager{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:12px}
+.stats{margin-left:auto;color:var(--muted)}
+@media (max-width:640px){table.csv td{max-width:160px}.toolbar .btn{flex:1}}
+</style>
+</head>
+<body>
+<header>
+  <h1>CSV Viewer</h1><span class="muted">RFC-4180 parsing, fully local</span>
+</header>
+<main>
+  <div class="toolbar" id="topBar">
+    <button class="btn primary" id="openBtn">Open file…</button>
+    <button class="btn" id="sampleBtn">Load sample</button>
+    <button class="btn" id="exportBtn" disabled title="Download the current filtered/sorted view as CSV">Export CSV</button>
+    <button class="btn" id="jsonBtn" disabled title="Copy the current view as JSON to the clipboard">Copy as JSON</button>
+    <label class="muted" for="delimSel">Delimiter</label>
+    <select id="delimSel" disabled>
+      <option value="auto" selected>Auto-detect</option>
+      <option value=",">, comma</option>
+      <option value=";">; semicolon</option>
+      <option value="&#9;">&#9; tab</option>
+      <option value="|">| pipe</option>
+    </select>
+    <input type="text" id="globalFilter" placeholder="Filter all columns…" aria-label="Global text filter" disabled style="flex:1;min-width:140px">
+  </div>
+  <div class="drop" id="drop">
+    <div>Drop a .csv file here, or use <strong>Open file…</strong>. Files are parsed locally in the browser — nothing is uploaded.</div>
+    <input type="file" id="fileIn" accept=".csv,.txt,.tsv,text/csv" style="display:none">
+    <div class="prog" id="progBox" style="display:none"><div id="progBar"></div></div>
+    <div class="muted" id="loadMsg"></div>
+  </div>
+  <div class="tablebox" id="tableBox" style="display:none">
+    <table class="csv"><thead id="thead"></thead><tbody id="tbody"></tbody><tfoot id="tfoot"></tfoot></table>
+  </div>
+  <div class="pager" id="pager" style="display:none">
+    <button class="btn" id="prevBtn" aria-label="Previous page">&#8592;</button>
+    <span id="pageInfo"></span>
+    <button class="btn" id="nextBtn" aria-label="Next page">&#8594;</button>
+    <label class="muted" for="pageSize">Rows/page</label>
+    <select id="pageSize" aria-label="Rows per page"><option>25</option><option selected>50</option><option>100</option><option>500</option></select>
+    <span class="stats" id="statsInfo"></span>
+  </div>
+</main>
+<footer><span class="muted" id="footNote">Runs offline. Data stays on this device. Rows render via textContent only.</span></footer>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-csv-viewer-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-csv-viewer-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+/*PARSER_START*/
+/* ---------- RFC-4180 chunked parser (pure, feedable; unit-testable) ---------- */
+function csvNewState(delim){
+  return {delim:delim||",",rows:[],field:"",rec:[],inQ:false,q2:false,crSkip:false};
+}
+function csvEndRecord(st){
+  st.rec.push(st.field);st.rows.push(st.rec);st.rec=[];st.field="";
+}
+function csvFeed(st,text){
+  for(var i=0;i<text.length;i++){
+    var c=text.charAt(i);
+    if(st.crSkip){st.crSkip=false;if(c==="\n")continue;}
+    if(c==="\r"){ /* newline: covers \r\n and lone \r; inside quotes keep as \n */
+      if(st.inQ){st.field+="\n";}else{csvEndRecord(st);}
+      st.crSkip=true;continue;
+    }
+    if(st.inQ){
+      if(st.q2){
+        st.q2=false;
+        if(c==='"'){st.field+='"';continue;} /* escaped "" */
+        st.inQ=false; /* quote closed; fall through to unquoted handling of c below */
+      }else if(c==='"'){st.q2=true;continue;}
+      else{st.field+=c;continue;}
+    }
+    if(c==='"'){st.inQ=true;continue;}
+    if(c===st.delim){st.rec.push(st.field);st.field="";continue;}
+    if(c==="\n"){csvEndRecord(st);continue;}
+    st.field+=c;
+  }
+  return st;
+}
+function csvFinish(st){
+  /* a pending q2 at EOF is just the closing quote — nothing to append */
+  if(st.field!==""||st.rec.length)csvEndRecord(st);
+  return st.rows;
+}
+/* Detect delimiter by counting candidates in the first unquoted line of raw text */
+function csvDetectDelim(text){
+  var n=Math.min(text.length,4096),inQ=false,q2=false,line="",cands={",":0,";":0,"\t":0,"|":0};
+  for(var i=0;i<n;i++){
+    var c=text.charAt(i);
+    if(inQ){
+      if(q2){
+        q2=false;
+        if(c==='"'){line+='"';continue;} /* escaped "" inside quotes */
+        inQ=false; /* quote closed; fall through to unquoted handling */
+      }else if(c==='"'){q2=true;continue;}
+      else if(c==="\n"||c==="\r"){break;} /* unterminated quote on line */
+      else{line+=c;continue;}
+    }
+    if(c==='"'){inQ=true;continue;}
+    if(c==="\n"||c==="\r"){if(line.length)break;continue;}
+    if(c in cands)cands[c]++;
+    line+=c;
+  }
+  var best=",",bc=-1;
+  Object.keys(cands).forEach(function(k){if(cands[k]>bc){bc=cands[k];best=k;}});
+  return bc>0?best:",";
+}
+/*PARSER_END*/
+/* ---------- Viewer UI ---------- */
+(function(){
+  "use strict";
+  var $=function(id){return document.getElementById(id);};
+  var raw="", headers=[], rows=[], numeric=[], colStats=[], sortCol=-1, sortDir=1;
+  var colFilters=[], viewIdx=[], page=0, parsing=false;
+  var prefs=store.get("ui",{pageSize:50});
+
+  var SAMPLE='name,dept,salary,joined,note\nAlice,"R&D",5200,2021-03-15,"likes ""quotes"" and, commas"\nBob,Support,3800,2020-07-01,"multi\nline note"\nCarol,Sales,4500,2022-11-30,regular row\nDan,"R&D",6100,2019-01-05,"tab\tchar kept"\nEve,Support,,2023-05-20,"salary missing"\n';
+
+  function setBusy(msg){
+    $("loadMsg").textContent=msg||"";
+    $("progBox").style.display=msg?"block":"none";
+    ["delimSel","globalFilter","exportBtn","jsonBtn"].forEach(function(id){$(id).disabled=!!msg||!rows.length;});
+  }
+
+  /* Chunked parse: 512 KB slices, yielding between chunks so 10 MB files don't freeze */
+  function parseAll(text,delim,done){
+    parsing=true;
+    var st=csvNewState(delim),pos=0,CH=512*1024;
+    $("drop").style.display="flex";$("tableBox").style.display="none";$("pager").style.display="none";
+    setBusy("Parsing "+(text.length/1048576).toFixed(1)+" MB…");
+    function step(){
+      var t0=Date.now();
+      while(pos<text.length&&Date.now()-t0<30){
+        csvFeed(st,text.slice(pos,Math.min(pos+CH,text.length)));
+        pos=Math.min(pos+CH,text.length);
+        $("progBar").style.width=(100*pos/Math.max(1,text.length)).toFixed(1)+"%";
+      }
+      if(pos<text.length){setTimeout(step,0);return;}
+      var all=csvFinish(st);
+      parsing=false;
+      if(!all.length){setBusy("Empty file — no rows found.");rows=[];return;}
+      headers=all[0];rows=all.slice(1);
+      /* widen ragged rows */
+      rows.forEach(function(r){while(r.length<headers.length)r.push("");});
+      detectColumns();
+      colFilters=new Array(headers.length).fill("");
+      $("drop").style.display="none";$("tableBox").style.display="block";$("pager").style.display="flex";
+      setBusy(null);
+      done&&done();
+    }
+    setTimeout(step,0);
+  }
+
+  function asNumber(s){
+    if(s==null)return NaN;
+    s=String(s).trim();
+    if(s===""||s==="-"||s==="+")return NaN;
+    var n=Number(s.replace(/[,_\s]/g,""));
+    return isNaN(n)?NaN:n;
+  }
+  function detectColumns(){
+    numeric=[];colStats=[];
+    var W=Math.min(rows.length,500);
+    for(var c=0;c<headers.length;c++){
+      var seen=0,ok=0,vals=[];
+      for(var r=0;r<W;r++){
+        var v=rows[r][c];
+        if(v==null||String(v).trim()==="")continue;
+        seen++;var n=asNumber(v);
+        if(!isNaN(n)){ok++;vals.push(n);}
+      }
+      var isNum=seen>0&&ok/seen>=0.9;
+      numeric[c]=isNum;
+      if(isNum&&vals.length){
+        var mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals),sum=0;
+        vals.forEach(function(x){sum+=x;});
+        colStats[c]={min:mn,max:mx,mean:sum/vals.length,sum:sum,n:vals.length};
+      }else colStats[c]=null;
+    }
+    /* re-check against all rows for stats if sample small */
+    if(rows.length>W){
+      for(var c2=0;c2<headers.length;c2++){
+        if(!numeric[c2])continue;
+        var vals2=[],mn2=Infinity,mx2=-Infinity,sum2=0;
+        for(var r2=0;r2<rows.length;r2++){var n2=asNumber(rows[r2][c2]);if(!isNaN(n2)){vals2.push(n2);if(n2<mn2)mn2=n2;if(n2>mx2)mx2=n2;sum2+=n2;}}
+        if(vals2.length)colStats[c2]={min:mn2,max:mx2,mean:sum2/vals2.length,sum:sum2,n:vals2.length};
+      }
+    }
+  }
+
+  function buildHeader(){
+    var th=$("thead");th.textContent="";
+    var tr=document.createElement("tr");
+    headers.forEach(function(h,c){
+      var el=document.createElement("th");
+      var b=document.createElement("button");
+      b.textContent=h||("col "+(c+1));
+      b.setAttribute("aria-label","Sort by "+(h||"column "+(c+1)));
+      b.addEventListener("click",function(){
+        if(sortCol===c)sortDir=-sortDir;else{sortCol=c;sortDir=1;}
+        refresh();
+      });
+      var arrow=document.createElement("span");
+      arrow.textContent=sortCol===c?(sortDir>0?" ▲":" ▼"):"";
+      var badge=document.createElement("span");
+      badge.className="badge"+(numeric[c]?" num":"");
+      badge.textContent=numeric[c]?"123":"abc";
+      badge.title=numeric[c]?"Numeric column":"Text column";
+      el.appendChild(b);el.appendChild(arrow);el.appendChild(badge);
+      tr.appendChild(el);
+    });
+    th.appendChild(tr);
+    var fr=document.createElement("tr");fr.className="filters";
+    headers.forEach(function(h,c){
+      var el=document.createElement("th");
+      var inp=document.createElement("input");
+      inp.type="text";inp.placeholder="filter";
+      inp.setAttribute("aria-label","Filter column "+(h||c+1));
+      inp.value=colFilters[c]||"";
+      inp.addEventListener("input",function(){colFilters[c]=inp.value.toLowerCase();page=0;refresh();});
+      el.appendChild(inp);fr.appendChild(el);
+    });
+    th.appendChild(fr);
+  }
+
+  function fmtNum(x){
+    if(!isFinite(x))return "—";
+    var a=Math.abs(x);
+    if(a!==0&&(a<1e-4||a>=1e12))return x.toExponential(3);
+    return String(Math.round(x*1e6)/1e6);
+  }
+
+  function refresh(){
+    if(parsing)return;
+    var g=($("globalFilter").value||"").toLowerCase();
+    viewIdx=[];
+    for(var r=0;r<rows.length;r++){
+      var row=rows[r],ok=true;
+      for(var c=0;c<colFilters.length&&ok;c++){
+        if(colFilters[c]){
+          var cv=row[c]==null?"":String(row[c]);
+          if(cv.toLowerCase().indexOf(colFilters[c])===-1)ok=false;
+        }
+      }
+      if(ok&&g){
+        ok=false;
+        for(var c2=0;c2<headers.length;c2++){
+          if(String(row[c2]||"").toLowerCase().indexOf(g)!==-1){ok=true;break;}
+        }
+      }
+      if(ok)viewIdx.push(r);
+    }
+    if(sortCol>=0){
+      viewIdx.sort(function(a,b){
+        var va=rows[a][sortCol],vb=rows[b][sortCol];
+        if(numeric[sortCol]){
+          var na=asNumber(va),nb=asNumber(vb);
+          var fa=isNaN(na)?-Infinity:na,fb=isNaN(nb)?-Infinity:nb;
+          return (fa<fb?-1:fa>fb?1:0)*sortDir;
+        }
+        va=String(va||"");vb=String(vb||"");
+        return (va<vb?-1:va>vb?1:0)*sortDir;
+      });
+    }
+    var ps=parseInt($("pageSize").value,10)||50;
+    var maxPage=Math.max(0,Math.ceil(viewIdx.length/ps)-1);
+    if(page>maxPage)page=maxPage;
+    var start=page*ps,end=Math.min(viewIdx.length,start+ps);
+    var tb=$("tbody");tb.textContent="";
+    var frag=document.createDocumentFragment();
+    for(var i=start;i<end;i++){
+      var tr=document.createElement("tr");
+      var row=rows[viewIdx[i]];
+      for(var c=0;c<headers.length;c++){
+        var td=document.createElement("td");
+        td.textContent=String(row[c]==null?"":row[c]); /* textContent only — never innerHTML */
+        td.title=td.textContent;
+        tr.appendChild(td);
+      }
+      frag.appendChild(tr);
+    }
+    tb.appendChild(frag);
+    /* stats footer: show stats for the filtered set */
+    var tf=$("tfoot");tf.textContent="";
+    var ftr=document.createElement("tr");
+    for(var c3=0;c3<headers.length;c3++){
+      var td3=document.createElement("td");
+      if(numeric[c3]){
+        var mn=Infinity,mx=-Infinity,sum=0,n=0;
+        for(var k=0;k<viewIdx.length;k++){
+          var v=asNumber(rows[viewIdx[k]][c3]);
+          if(isNaN(v))continue;
+          n++;if(v<mn)mn=v;if(v>mx)mx=v;sum+=v;
+        }
+        td3.textContent=n?("min "+fmtNum(mn)+" · max "+fmtNum(mx)+" · mean "+fmtNum(sum/n)+" · Σ "+fmtNum(sum)):"—";
+      } else td3.textContent="";
+      ftr.appendChild(td3);
+    }
+    tf.appendChild(ftr);
+    $("pageInfo").textContent="page "+(viewIdx.length?page+1:0)+" / "+(Math.max(1,maxPage+1))+" · rows "+(end-start)+" of "+viewIdx.length;
+    $("statsInfo").textContent=viewIdx.length!==rows.length?("filtered from "+rows.length+" rows"):rows.length+" data rows";
+    $("prevBtn").disabled=page===0;$("nextBtn").disabled=page>=maxPage;
+    buildHeader();
+  }
+
+  function loadText(text,autoDelim){
+    raw=text;
+    var d=$("delimSel").value;
+    if(d==="auto"){d=autoDelim||csvDetectDelim(text);$("delimSel").detected=d;}
+    parseAll(text,d,refresh);
+  }
+
+  /* File loading via sliced FileReader so huge files stream */
+  function readFile(file){
+    if(!file)return;
+    if(file.size>40*1048576){$("loadMsg").textContent="File larger than 40 MB — refusing to load locally.";return;}
+    var chunks=[],pos=0,CH=1024*1024;
+    var expected=Math.max(1,Math.ceil(file.size/CH)),loaded=0;
+    $("drop").style.display="flex";
+    setBusy("Reading "+file.name+" ("+(file.size/1048576).toFixed(1)+" MB)…");
+    function tryFinish(){
+      if(loaded<expected){setTimeout(tryFinish,50);return;}
+      chunks.sort(function(a,b){return a.p-b.p;});
+      var text=chunks.map(function(c){return c.t;}).join("");
+      if(text.charCodeAt(0)===0xFEFF)text=text.slice(1); /* strip BOM */
+      loadText(text);
+      store.set("last",{name:file.name,size:file.size});
+      $("topBar").querySelectorAll(".fname").forEach(function(n){n.remove();});
+      var nm=document.createElement("span");nm.className="muted fname";nm.textContent=file.name;
+      $("topBar").appendChild(nm);
+    }
+    function step(){
+      var t0=Date.now();
+      while(pos<file.size&&Date.now()-t0<30){
+        (function(p){
+          var fr=new FileReader();
+          fr.onload=function(){chunks.push({p:p,t:fr.result});loaded++;};
+          fr.onerror=function(){setBusy("Could not read file.");};
+          fr.readAsText(file.slice(p,Math.min(p+CH,file.size)));
+        })(pos);
+        pos=Math.min(pos+CH,file.size);
+        $("progBar").style.width=(100*pos/Math.max(1,file.size)).toFixed(1)+"%";
+      }
+      if(pos<file.size){setTimeout(step,0);return;}
+      loaded=Math.max(loaded,Math.ceil(pos/CH));
+      tryFinish();
+    }
+    setTimeout(step,0);
+  }
+
+  /* ---------- actions ---------- */
+  $("openBtn").addEventListener("click",function(){$("fileIn").click();});
+  $("fileIn").addEventListener("change",function(){readFile(this.files[0]);this.value="";});
+  $("sampleBtn").addEventListener("click",function(){$("delimSel").value=",";raw=SAMPLE;loadText(SAMPLE,",");$("drop").style.display="none";});
+  $("delimSel").addEventListener("change",function(){if(raw)loadText(raw);});
+  $("globalFilter").addEventListener("input",function(){page=0;refresh();});
+  $("pageSize").addEventListener("change",function(){page=0;store.set("ui",{pageSize:parseInt(this.value,10)});refresh();});
+  $("prevBtn").addEventListener("click",function(){page--;refresh();});
+  $("nextBtn").addEventListener("click",function(){page++;refresh();});
+  var dz=$("drop");
+  ["dragover","dragenter"].forEach(function(ev){dz.addEventListener(ev,function(e){e.preventDefault();dz.classList.add("over");});});
+  ["dragleave","drop"].forEach(function(ev){dz.addEventListener(ev,function(e){e.preventDefault();dz.classList.remove("over");});});
+  dz.addEventListener("drop",function(e){if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0])readFile(e.dataTransfer.files[0]);});
+  document.body.addEventListener("dragover",function(e){e.preventDefault();});
+  document.body.addEventListener("drop",function(e){e.preventDefault();});
+
+  function csvEscape(v,delim){
+    v=String(v==null?"":v);
+    if(v.indexOf('"')!==-1||v.indexOf(delim)!==-1||/[\r\n]/.test(v))return '"'+v.replace(/"/g,'""')+'"';
+    return v;
+  }
+  function currentView(){
+    var out=[headers.slice()];
+    viewIdx.forEach(function(r){out.push(rows[r]);});
+    return out;
+  }
+  function download(name,text,type){
+    var a=document.createElement("a"),blob=new Blob([text],{type:type});
+    a.href=URL.createObjectURL(blob);a.download=name;
+    document.body.appendChild(a);a.click();
+    setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1000);
+  }
+  $("exportBtn").addEventListener("click",function(){
+    if(!rows.length)return;
+    var d=$("delimSel").value==="auto"?(csvDetectDelim(raw)):($("delimSel").value||",");
+    var csv=currentView().map(function(r){return r.map(function(v){return csvEscape(v,d);}).join(d);}).join("\r\n");
+    download("view.csv",csv,"text/csv;charset=utf-8");
+  });
+  $("jsonBtn").addEventListener("click",function(){
+    if(!rows.length)return;
+    var data=currentView();var hs=data[0];
+    var objs=data.slice(1).map(function(r){var o={};hs.forEach(function(h,i){o[h||("col"+(i+1))]=r[i];});return o;});
+    var text=JSON.stringify(objs,null,2);
+    function fallback(){
+      var ta=document.createElement("textarea");ta.value=text;ta.style.position="fixed";ta.style.opacity="0";
+      document.body.appendChild(ta);ta.select();
+      try{document.execCommand("copy");$("footNote").textContent="JSON copied to clipboard ("+objs.length+" objects).";}catch(e){$("footNote").textContent="Clipboard unavailable — select-and-copy not possible here.";}
+      ta.remove();
+    }
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(function(){
+        $("footNote").textContent="JSON copied to clipboard ("+objs.length+" objects).";
+      },fallback);
+    }else fallback();
+  });
+
+  $("pageSize").value=String(prefs.pageSize||50);
+  if(!store.persistent){$("footNote").textContent="Runs offline. Session only inside Nucleus (sandboxed frame) — nothing is uploaded.";store.set("ui",prefs);}
+})();
+</script>
+</body>
+</html>

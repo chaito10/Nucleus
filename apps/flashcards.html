@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<!--
+  Nucleus catalogue app: Flashcards.
+  Self-contained offline single file. Contract: apps/CATALOG.md.
+  Pure logic (CSV/TSV parser, Leitner schedule, session queue, stats, CSV export) lives in the
+  first <script> and is exported for node unit tests; the second <script> is UI only.
+
+  Accepted import formats (documented in the UI too):
+   - delimited text with 2+ columns: comma, tab, semicolon, or whitespace separated
+     (auto-detected from the first data line; overridable).
+   - RFC 4180 quoting rules for , ; and TAB: fields wrapped in " double quotes may contain the
+     delimiter and literal newlines; a literal quote is written "" (doubled).
+   - whitespace mode: runs of spaces/tabs separate fields, "..." groups a field (no embedded newlines).
+   - optional header line "front,back" / "term,definition" / "question,answer" (also with a box column).
+   - blank lines and lines starting with # are ignored.
+   - rows with 1 field are rejected with a line number; rows with >2 fields keep the extras joined
+     into the back field (a warning is reported).
+  Leitner model: 5 boxes with day intervals 1, 2, 4, 7, 21 (classic Leitner set).
+    correct -> box+1 (max 5), wrong -> box 1. Card is due when last + interval(box) <= today.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flashcards</title>
+<script type="application/nucleus+json">
+{"id":"flashcards","name":"Flashcards","cat":"Education",
+ "desc":"Study decks with Leitner boxes and CSV import.","w":900,"h":600}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --ok:#3ecf8e; --bad:#ef6e6e; --warn:#e8c469;
+  --radius:10px; --font:13px;
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+  --ok:#127a4c; --bad:#b3403f; --warn:#8a6a12;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:10px;min-width:0;flex:1 1 320px}
+.col.side{flex:1 1 300px;max-width:420px}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+textarea,input[type=text],input[type=number],select{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px;width:100%}
+textarea{resize:vertical}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+label{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:6px 0 0}
+fieldset{border:1px solid var(--border);border-radius:var(--radius);padding:10px;margin:0;display:flex;flex-direction:column;gap:8px}
+legend{padding:0 4px;font-size:12px;color:var(--muted)}
+#card{border:1px solid var(--border);border-radius:var(--radius);padding:16px;min-height:130px;display:flex;flex-direction:column;gap:10px;justify-content:center}
+#card-front{font-size:18px;font-weight:600;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
+#card-back{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;border-left:3px solid var(--accent);padding-left:10px}
+.badge{border:1px solid var(--border);border-radius:999px;padding:1px 8px;font-size:11px;background:var(--panel);white-space:nowrap}
+#card-list{display:flex;flex-direction:column;gap:6px;max-height:40vh;overflow:auto;padding-right:4px}
+.crow{display:flex;gap:6px;align-items:flex-start}
+.crow textarea{min-width:0;flex:1 1 40%;min-height:34px}
+.crow .badge{margin-top:7px}
+.stats{display:flex;gap:6px;flex-wrap:wrap}
+.stat{border:1px solid var(--border);border-radius:8px;padding:4px 8px;display:flex;flex-direction:column;min-width:64px;background:var(--panel)}
+.stat b{font-size:15px}
+.stat span{font-size:11px;color:var(--muted)}
+#report{font-size:12px;display:flex;flex-direction:column;gap:2px;max-height:140px;overflow:auto}
+#report .e{color:var(--bad)}
+#report .w{color:var(--warn)}
+#report .g{color:var(--ok)}
+#status{font-size:12px;min-height:16px}
+#status.ok{color:var(--ok)}
+#status.err{color:var(--bad)}
+kbd{border:1px solid var(--border);border-bottom-width:2px;border-radius:4px;padding:0 4px;font:12px ui-monospace,Consolas,monospace;background:var(--panel)}
+@media (max-width:700px){main{flex-direction:column}.col.side{max-width:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header><h1>Flashcards</h1><span class="muted">Leitner boxes 1&ndash;5 (1/2/4/7/21 days) &middot; CSV &middot; TSV &middot; pasted two-column text</span></header>
+<main>
+  <div class="col">
+    <h2 id="study-h">Study</h2>
+    <div class="row" role="group" aria-label="Deck picker">
+      <label class="muted" for="deck-select" style="flex:1 1 160px">Deck
+        <select id="deck-select"></select>
+      </label>
+      <button class="btn" id="btn-start" type="button">Start session</button>
+    </div>
+    <div class="row" id="session-info" aria-live="polite"></div>
+    <article id="card" aria-labelledby="study-h">
+      <div class="row" id="card-meta"></div>
+      <div id="card-front">Choose a deck and start a session.</div>
+      <div id="card-back" hidden></div>
+    </article>
+    <div class="row" role="group" aria-label="Answer controls">
+      <button class="btn" id="btn-reveal" type="button">Show answer</button>
+      <button class="btn" id="btn-wrong" type="button" disabled>Didn&rsquo;t know</button>
+      <button class="btn primary" id="btn-right" type="button" disabled>Knew it</button>
+    </div>
+    <div class="row">
+      <label><input type="checkbox" id="opt-shuffle"> Shuffle</label>
+      <label><input type="checkbox" id="opt-dueonly" checked> Only cards that are due</label>
+      <label><input type="checkbox" id="opt-boxmode"> Box-pick mode (<kbd>1</kbd>&ndash;<kbd>5</kbd> set box)</label>
+    </div>
+    <p class="muted" id="keys">Keyboard: <kbd>Space</kbd> show answer &middot; <kbd>1</kbd> didn&rsquo;t know &middot; <kbd>2</kbd> knew it. In box-pick mode <kbd>1</kbd>&ndash;<kbd>5</kbd> assign the box instead.</p>
+    <div class="stats" id="session-stats" role="status" aria-live="polite"></div>
+    <h2>Deck progress</h2>
+    <div class="stats" id="deck-stats"></div>
+    <p class="muted" id="about-model" hidden>Session rule: each due card is queued once; a card you miss
+      cycles back after 1 other review, a card you get right cycles back after 3+box more reviews,
+      but only while review slots remain. Box and due date are saved per card.</p>
+  </div>
+  <div class="col side">
+    <h2>Decks</h2>
+    <div class="row" role="group" aria-label="Deck actions">
+      <button class="btn" id="btn-new" type="button">New deck</button>
+      <button class="btn" id="btn-rename" type="button">Rename</button>
+      <button class="btn" id="btn-del-deck" type="button">Delete deck</button>
+    </div>
+    <fieldset>
+      <legend>Import</legend>
+      <label class="muted" for="import-delim">Delimiter
+        <select id="import-delim">
+          <option value="auto" selected>Auto-detect</option>
+          <option value=",">Comma (CSV)</option>
+          <option value="	">Tab (TSV)</option>
+          <option value=";">Semicolon</option>
+          <option value=" ">Whitespace</option>
+        </select>
+      </label>
+      <label for="import-text" class="muted">Paste rows (front and back per line)
+        <textarea id="import-text" rows="5" spellcheck="false" placeholder="capital of France,Paris&#10;&quot;Oslo&quot;&#9;Norway"></textarea>
+      </label>
+      <input type="file" id="import-file" accept=".csv,.tsv,.txt,text/csv,text/plain">
+      <div class="row" role="group" aria-label="Import buttons">
+        <button class="btn primary" id="btn-imp-append" type="button">Append to deck</button>
+        <button class="btn" id="btn-imp-replace" type="button">Replace deck</button>
+      </div>
+      <div id="report" class="muted" role="status" aria-live="polite"></div>
+      <p class="muted">Formats: 2+ columns separated by comma, tab, semicolon or whitespace;
+        <q>&hellip;</q> quoting allows delimiters, newlines and <code>&quot;&quot;</code> for a literal quote;
+        optional header <code>front,back[,box]</code>; blank lines and <code>#</code> lines ignored.
+        Max 5000 cards/deck, 200&thinsp;000 characters per import.</p>
+    </fieldset>
+    <fieldset>
+      <legend>Cards (<span id="card-count">0</span>)</legend>
+      <div id="card-list"></div>
+      <div class="row" role="group" aria-label="Card actions">
+        <button class="btn" id="btn-add" type="button">Add card</button>
+        <button class="btn" id="btn-reset" type="button">Reset all boxes</button>
+        <button class="btn" id="btn-export" type="button">Export CSV</button>
+        <button class="btn" id="btn-export-all" type="button">Export all decks</button>
+      </div>
+      <div id="status" role="status" aria-live="polite"></div>
+    </fieldset>
+  </div>
+</main>
+<footer><span class="muted" id="foot">Runs offline. Decks are stored on this device only (browser storage), never uploaded.</span></footer>
+
+<script>
+"use strict";
+/* ================= Flashcard logic: no DOM, unit-testable under node ================= */
+var MAX_CARDS=5000, MAX_INPUT=200000;
+var BOX_INTERVALS=[1,2,4,7,21];            /* classic Leitner day intervals for boxes 1..5 */
+var HEADERS={front:["front","term","question","card"],back:["back","definition","answer","definition"],box:["box","leitner"]};
+
+function stripBom(s){return s.charAt(0)==="\uFEFF"?s.slice(1):s;}
+function isNewline(c){return c==="\n"||c==="\r";}
+
+/* Character scanner for a single-character delimiter, RFC 4180 rules:
+   a field may be wrapped in "..." (may then contain the delimiter and literal newlines);
+   a doubled "" inside quotes is one literal quote. Returns [{cells:[{v,q}],line}]. */
+function scanRecords(text,delim){
+  var records=[],cells=[],field="",quoted=false,inQ=false,i=0,line=1,startLine=1;
+  function endField(){cells.push({v:field,q:quoted});field="";quoted=false;}
+  function endRecord(){endField();records.push({cells:cells,line:startLine});cells=[];startLine=line+1;}
+  while(i<text.length){
+    var c=text.charAt(i);
+    if(inQ){
+      if(c==='"'){
+        if(text.charAt(i+1)==='"'){field+='"';i+=2;continue;}
+        inQ=false;i++;continue;
+      }
+      if(isNewline(c)){
+        field+="\n";
+        i+=(c==="\r"&&text.charAt(i+1)==="\n")?2:1;line++;startLine=line;continue;
+      }
+      field+=c;i++;continue;
+    }
+    if(c==='"'&&field===""){inQ=true;quoted=true;i++;continue;}
+    if(c===delim){endField();i++;continue;}
+    if(isNewline(c)){endRecord();i+=(c==="\r"&&text.charAt(i+1)==="\n")?2:1;line++;continue;}
+    field+=c;i++;
+  }
+  if(field!==""||quoted||cells.length)endRecord();
+  return records;
+}
+
+/* Whitespace-separated scanner: runs of spaces/tabs split fields, "..." groups a field.
+   One record per line (no embedded newlines). */
+function scanWsRecords(text){
+  var lines=text.split(/\r\n|\r|\n/),records=[];
+  for(var li=0;li<lines.length;li++){
+    var s=lines[li],i=0,cells=[];
+    while(i<s.length){
+      while(i<s.length&&/\s/.test(s.charAt(i)))i++;
+      if(i>=s.length)break;
+      var field="",quoted=false;
+      if(s.charAt(i)==='"'){
+        quoted=true;i++;
+        while(i<s.length){
+          if(s.charAt(i)==='"'){
+            if(s.charAt(i+1)==='"'){field+='"';i+=2;continue;}
+            break; /* closing quote */
+          }
+          field+=s.charAt(i);i++;
+        }
+        i++;
+        while(i<s.length&&/\s/.test(s.charAt(i)))i++;
+      } else {
+        while(i<s.length&&!/\s/.test(s.charAt(i))){field+=s.charAt(i);i++;}
+      }
+      cells.push({v:field,q:quoted});
+    }
+    records.push({cells:cells.length?cells:[{v:"",q:false}],line:li+1});
+  }
+  return records;
+}
+
+function detectDelimiter(text){
+  var lines=stripBom(text).split(/\r\n|\r|\n/);
+  for(var i=0;i<lines.length;i++){
+    var L=lines[i];
+    if(!L.trim()||L.charAt(0)==="#")continue;
+    if(L.indexOf("\t")>=0)return "\t";
+    if(L.indexOf(";")>=0)return ";";
+    if(L.indexOf(",")>=0)return ",";
+    if(/\S\s+\S/.test(L))return " ";
+    return ",";
+  }
+  return ",";
+}
+
+/* Main entry: text -> {cards, errors, warnings, delimiter, skipped} */
+function parseDeckText(text,delimOpt){
+  var out={cards:[],errors:[],warnings:[],delimiter:null,skipped:{blank:0,comment:0},truncated:false};
+  if(typeof text!=="string")throw new Error("input must be a string");
+  if(text.length>MAX_INPUT){out.errors.push({line:0,reason:"Input is "+text.length+" characters; the limit is "+MAX_INPUT+". Split it into smaller imports."});return out;}
+  text=stripBom(text);
+  var delim=(delimOpt&&delimOpt!=="auto")?delimOpt:detectDelimiter(text);
+  if(delim!=="\t"&&delim!==";"&&delim!==","&&delim!==" ")delim=",";
+  out.delimiter=delim;
+  var ws=(delim===" ");
+  var records=ws?scanWsRecords(text):scanRecords(text,delim);
+  var headerSeen=false,boxCol=-1;
+  for(var i=0;i<records.length;i++){
+    var rec=records[i],line=rec.line;
+    var raw=rec.cells.map(function(c){return c.v;});
+    var trimmed=raw.map(function(s){return s.trim();});
+    if(trimmed.every(function(s){return s==="";})){out.skipped.blank++;continue;}
+    if(trimmed[0].charAt(0)==="#"&&rec.cells[0].q===false){out.skipped.comment++;continue;}
+    if(!headerSeen&&i===firstData(records)){
+      var hi={f:-1,b:-1,x:-1};
+      trimmed.forEach(function(t,k){var l=t.toLowerCase();
+        if(hi.f<0&&HEADERS.front.indexOf(l)>=0)hi.f=k;
+        else if(hi.b<0&&HEADERS.back.indexOf(l)>=0&&k>hi.f)hi.b=k;
+        else if(hi.x<0&&HEADERS.box.indexOf(l)>=0&&k>hi.b)hi.x=k;});
+      if(hi.f>=0&&hi.b>=0){headerSeen=true;boxCol=hi.x;continue;}
+    }
+    if(trimmed.length<2){out.errors.push({line:line,reason:"Expected 2 columns, found "+trimmed.length+"."});continue;}
+    var front=raw[0].trim(),back=raw.slice(1,boxCol>=0?boxCol:raw.length).join(ws?" ":delim).trim();
+    var boxRaw=boxCol>=0?(raw[boxCol]||"").trim():null;
+    if(!front){out.errors.push({line:line,reason:"Empty front field."});continue;}
+    if(!back){out.errors.push({line:line,reason:"Empty back field."});continue;}
+    if(trimmed.length>2&&boxCol<0)out.warnings.push({line:line,reason:trimmed.length+" columns found; columns 2+ were joined into the back field."});
+    var box=1;
+    if(boxRaw!==null&&boxRaw!==""){
+      var n=parseInt(boxRaw,10);
+      if(!(n>=1&&n<=5)){out.errors.push({line:line,reason:"Box value \""+boxRaw+"\" is not 1-5."});continue;}
+      box=n;
+    }
+    if(out.cards.length>=MAX_CARDS){out.truncated=true;out.warnings.push({line:line,reason:"Stopped at the "+MAX_CARDS+" card limit; later rows were ignored."});break;}
+    out.cards.push({front:front,back:back,box:box});
+  }
+  return out;
+}
+function firstData(records){
+  for(var i=0;i<records.length;i++){
+    var c=records[i].cells.map(function(x){return x.v.trim();});
+    if(c.every(function(s){return s==="";}))continue;
+    if(c[0].charAt(0)==="#"&&records[i].cells[0].q===false)continue;
+    return i;
+  }
+  return -1;
+}
+
+/* ---------------- Leitner schedule (day-based) ---------------- */
+function nextBox(box,correct){return correct?Math.min(5,box+1):1;}
+function intervalOf(box){return BOX_INTERVALS[Math.max(1,Math.min(5,box))-1];}
+function dueDay(card){return card.last==null?-1:card.last+intervalOf(card.box);}
+function isDue(card,day){return card.last==null||dueDay(card)<=day;}
+function gradeCard(card,correct,day){
+  var nb=nextBox(card.box,correct);
+  return {box:nb,last:day,due:day+intervalOf(nb)};
+}
+/* UTC day arithmetic: ISO yyyy-mm-dd <-> integer days since 1970-01-01 */
+function isoToDay(iso){
+  var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso||""));
+  if(!m)return null;
+  var y=+m[1],mo=+m[2],d=+m[3];
+  var a=Math.floor((mo-14)/12),yy=y+a,mp=mo+12*a-2;
+  var jdn=Math.floor(d+Math.floor((153*mp+2)/5)+365*yy+Math.floor(yy/4)-Math.floor(yy/100)+Math.floor(yy/400)+1721119);
+  return jdn-2440588;
+}
+function dayToIso(day){
+  var jdn=day+2440588,a=jdn+32044,b=Math.floor((4*a+3)/146097),c=a-Math.floor(146097*b/4),
+      d0=Math.floor((4*c+3)/1461),e=c-Math.floor(1461*d0/4),m0=Math.floor((5*e+2)/153);
+  var dd=e-Math.floor((153*m0+2)/5)+1,mm=m0+3-12*Math.floor(m0/10),yy=100*b+d0-4800+Math.floor(m0/10);
+  function p(n){return(n<10?"0":"")+n;}
+  return yy+"-"+p(mm)+"-"+p(dd);
+}
+function todayDay(){return Math.floor(Date.now()/86400000);}
+
+/* deterministic PRNG so seeded shuffles can be reproduced and tested */
+function mulberry32(a){
+  return function(){
+    a=(a+0x6D2B79F5)|0;
+    var t=Math.imul(a^(a>>>15),1|a);
+    t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    return ((t^(t>>>14))>>>0)/4294967296;
+  };
+}
+
+/* ---------------- session queue ----------------
+   state: {q, slots, step, log:[{i,correct,firstTry}], seen:{}, total}
+   A card answered right re-enters the queue after (3+box) other reviews, a missed one after 1,
+   and only while review slots remain (one slot per initially queued card). */
+function sessionInit(cards,opts){
+  opts=opts||{};
+  var list=[],i;
+  for(i=0;i<cards.length;i++){
+    if(opts.dueOnly===false||isDue(cards[i],opts.day==null?todayDay():opts.day))list.push(i);
+  }
+  if(opts.shuffle){
+    var rnd=mulberry32(opts.seed>>>0||1);
+    for(i=list.length-1;i>0;i--){var j=Math.floor(rnd()*(i+1)),t=list[i];list[i]=list[j];list[j]=t;}
+  } else list.sort(function(a,b){return cards[a].box-cards[b].box||a-b;});
+  return {q:list.slice(),slots:list.length,step:0,log:[],seen:{},firstTry:{},total:list.length};
+}
+function sessionCurrent(st){return st.slots>0&&st.q.length?st.q[0]:-1;}
+function sessionAnswer(st,cards,idx,correct,day,boxOverride){
+  if(idx!==st.q[0])throw new Error("stale-answer");
+  var card=cards[idx];
+  var newBox,first=st.seen[idx]===undefined;
+  if(boxOverride>=1&&boxOverride<=5)newBox=boxOverride|0;
+  else newBox=nextBox(card.box,correct);
+  st.q.shift();
+  st.slots--;
+  st.step++;
+  st.seen[idx]=1;
+  if(first)st.firstTry[idx]=correct?1:0;
+  var gap=boxOverride?1:(correct?3+newBox:1);
+  if(st.slots>0)st.q.splice(Math.min(st.q.length,gap),0,idx);
+  st.log.push({i:idx,correct:correct?1:0,firstTry:first?1:0,box:newBox});
+  return {box:newBox,last:day==null?todayDay():day,due:day+intervalOf(newBox)};
+}
+function sessionStats(st){
+  var correct=0,first=0,firstOk=0,i;
+  for(i=0;i<st.log.length;i++){
+    correct+=st.log[i].correct;
+    if(st.log[i].firstTry){first++;firstOk+=st.log[i].correct;}
+  }
+  return {reviews:st.log.length,correct:correct,wrong:st.log.length-correct,
+    accuracy:st.log.length?Math.round(correct*1000/st.log.length)/10:0,
+    firstTry:first,firstTryCorrect:firstOk,
+    firstTryAccuracy:first?Math.round(firstOk*1000/first)/10:0,
+    remaining:st.q.length,planned:st.total,done:st.slots<=0};
+}
+
+/* ---------------- CSV export ---------------- */
+function csvQuote(v,delim){
+  var s=String(v==null?"":v);
+  if(/[",\r\n]/.test(s)||s.indexOf(delim)>=0||/^\s|\s$/.test(s)){
+    return '"'+s.replace(/"/g,'""')+'"';
+  }
+  return s;
+}
+function toCsv(cards,delim){
+  delim=delim||",";
+  var lines=["front"+delim+"back"+delim+"box"];
+  for(var i=0;i<cards.length;i++){
+    lines.push([csvQuote(cards[i].front,delim),csvQuote(cards[i].back,delim),String(cards[i].box||1)].join(delim));
+  }
+  return lines.join("\r\n")+"\r\n";
+}
+function deckSummary(cards,day){
+  var s={total:cards.length,due:0,fresh:0,boxes:[0,0,0,0,0],nextDue:null};
+  for(var i=0;i<cards.length;i++){
+    var c=cards[i];s.boxes[Math.max(0,Math.min(4,(c.box||1)-1))]++;
+    if(c.last==null)s.fresh++;
+    else if(dueDay(c)<=day){s.due++;}
+    if(c.last!=null){var d=dueDay(c);if(s.nextDue===null||d<s.nextDue)s.nextDue=d;}
+  }
+  return s;
+}
+if(typeof module!=="undefined")module.exports={
+  MAX_CARDS:MAX_CARDS,MAX_INPUT:MAX_INPUT,BOX_INTERVALS:BOX_INTERVALS,
+  stripBom:stripBom,detectDelimiter:detectDelimiter,parseDeckText:parseDeckText,scanRecords:scanRecords,
+  nextBox:nextBox,intervalOf:intervalOf,dueDay:dueDay,isDue:isDue,gradeCard:gradeCard,
+  isoToDay:isoToDay,dayToIso:dayToIso,mulberry32:mulberry32,
+  sessionInit:sessionInit,sessionCurrent:sessionCurrent,sessionAnswer:sessionAnswer,sessionStats:sessionStats,
+  toCsv:toCsv,csvQuote:csvQuote,deckSummary:deckSummary
+};
+</script>
+
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-flashcards-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-flashcards-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+/* ---------- UI ---------- */
+var SAMPLE=[["capital of France","Paris"],["capital of Japan","Tokyo"],["capital of Canada","Ottawa"],
+  ["H","hydrogen"],["Au","gold"],["chemical formula of water","H2O"],["speed of light (m/s)","299792458"],
+  ["photosynthesis output","glucose + oxygen"]];
+var decks=null,deckId=null,st=null,revealed=false,day0=todayDay();
+
+function $(id){return document.getElementById(id);}
+function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e;}
+function escKey(s){return s;}
+function current(){for(var i=0;i<decks.length;i++)if(decks[i].id===deckId)return decks[i];return decks[0]||null;}
+function save(){
+  var json=JSON.stringify(decks);
+  if(json.length>90000){status("Decks are too large ("+json.length+" characters) to store; export a CSV to keep them. Working in memory for this session.","err");return;}
+  store.set("decks",decks);
+}
+function status(t,cls){var s=$("status");s.textContent=t;s.className=cls||"";}
+function mkDeck(name){return {id:"d"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+  name:name,cards:[],stats:{reviews:0,correct:0},cid:0};}
+function mkCard(d,front,back,box){
+  var c={id:"c"+(d.cid++),front:front,back:back,box:box||1,last:null};
+  return c;
+}
+function seedDefault(){
+  var d=mkDeck("Starter deck");
+  for(var i=0;i<SAMPLE.length;i++)d.cards.push(mkCard(d,SAMPLE[i][0],SAMPLE[i][1],1));
+  decks=[d];deckId=d.id;
+}
+function loadAll(){
+  var sv=store.get("decks",null);
+  if(Array.isArray(sv)&&sv.length){
+    decks=sv.filter(function(d){return d&&typeof d==="object"&&Array.isArray(d.cards)&&typeof d.name==="string";});
+    decks.forEach(function(d){
+      d.cards=d.cards.filter(function(c){return c&&typeof c.front==="string"&&typeof c.back==="string";})
+        .map(function(c){return {id:c.id||"c"+Math.random().toString(36).slice(2,7),front:String(c.front),back:String(c.back),
+          box:Math.max(1,Math.min(5,parseInt(c.box,10)||1)),last:(typeof c.last==="number"?c.last:null)};});
+      d.cid=parseInt(d.cid,10)||d.cards.length;
+      d.stats=(d.stats&&typeof d.stats==="object")?d.stats:{reviews:0,correct:0};
+    });
+    deckId=decks[0].id;
+  } else seedDefault();
+  var o=store.get("settings",null);
+  if(o){
+    if(typeof o.shuffle==="boolean")$("opt-shuffle").checked=o.shuffle;
+    if(typeof o.dueOnly==="boolean")$("opt-dueonly").checked=o.dueOnly;
+    if(typeof o.boxmode==="boolean")$("opt-boxmode").checked=o.boxmode;
+  }
+}
+function saveSettings(){store.set("settings",{shuffle:$("opt-shuffle").checked,dueOnly:$("opt-dueonly").checked,boxmode:$("opt-boxmode").checked});}
+
+function renderDeckSelect(){
+  var s=$("deck-select");s.textContent="";
+  decks.forEach(function(d){var o=document.createElement("option");o.value=d.id;o.textContent=d.name+" ("+d.cards.length+")";if(d.id===deckId)o.selected=true;s.appendChild(o);});
+}
+function renderCardList(){
+  var d=current(),host=$("card-list");host.textContent="";$("card-count").textContent=String(d?d.cards.length:0);
+  if(!d)return;
+  d.cards.forEach(function(c,i){
+    var row=el("div","crow");
+    var f=document.createElement("textarea");f.rows=1;f.value=c.front;f.setAttribute("aria-label","Card "+(i+1)+" front");
+    var b=document.createElement("textarea");b.rows=1;b.value=c.back;b.setAttribute("aria-label","Card "+(i+1)+" back");
+    f.addEventListener("input",function(){c.front=f.value;d.cards.length;save();});
+    b.addEventListener("input",function(){c.back=b.value;save();});
+    var badge=el("span","badge","B"+c.box);
+    c._badge=badge;
+    var del=el("button","btn","\u00D7");del.type="button";del.setAttribute("aria-label","Delete card "+(i+1)+": "+c.front);
+    del.addEventListener("click",function(){
+      if(!confirm("Delete this card?\n"+c.front))return;
+      d.cards.splice(i,1);save();renderAll();});
+    row.appendChild(badge);row.appendChild(f);row.appendChild(b);row.appendChild(del);
+    host.appendChild(row);
+  });
+}
+function boxBadges(){
+  return "";
+}
+function renderStats(){
+  var d=current();$("deck-stats").textContent="";
+  if(!d)return;
+  var s=deckSummary(d.cards,day0);
+  add("stat","cards",s.total);add("stat","due today",s.due);add("stat","new",s.fresh);
+  add("stat","lifetime",d.stats.reviews?Math.round(d.stats.correct*1000/d.stats.reviews)/10+"%":"\u2013");
+  add("stat","reviews",d.stats.reviews);
+  for(var i=0;i<5;i++)add("stat","box"+(i+1),s.boxes[i]);
+  function add(cls,label,val){
+    var b=el("div","stat"),t=el("b",null,String(val)),l=el("span","muted",label);
+    b.appendChild(t);b.appendChild(l);$("deck-stats").appendChild(b);
+  }
+}
+function renderSession(){
+  var host=$("session-stats");host.textContent="";
+  $("session-info").textContent=st?("(session "+(sessionStats(st).reviews)+" of "+st.planned+" reviews)"):"(no session running)";
+  if(!st)return;
+  var s=sessionStats(st);
+  [["reviews",s.reviews],["correct",s.correct],["accuracy",s.accuracy+"%"],
+   ["first-try",s.firstTryAccuracy+"%"],["queued",s.remaining]].forEach(function(p){
+    var b=el("div","stat");b.appendChild(el("b",null,String(p[1])));b.appendChild(el("span","muted",p[0]));host.appendChild(b);
+  });
+}
+function showCard(){
+  var d=current(),idx=st?sessionCurrent(st):-1;
+  $("btn-reveal").disabled=idx<0;$("btn-wrong").disabled=idx<0||!revealed;$("btn-right").disabled=$("btn-wrong").disabled;
+  if(idx<0){
+    $("card-front").textContent=st?"Session complete.":"Choose a deck and start a session.";
+    $("card-back").hidden=true;$("card-meta").textContent="";
+    if(st)renderSession();
+    return;
+  }
+  var c=d.cards[idx];
+  $("card-front").textContent=c.front;
+  $("card-meta").textContent="";
+  var mb=el("span","badge","box "+c.box);$("card-meta").appendChild(mb);
+  $("card-meta").appendChild(el("span","muted",c.last==null?"new card":"due "+(dueDay(c)<=day0?"today":dayToIso(dueDay(c)))));
+  $("card-back").hidden=!revealed;
+  $("card-back").textContent=revealed?c.back:"";
+}
+function startSession(){
+  var d=current();
+  if(!d||!d.cards.length){status("This deck has no cards. Add or import cards first.","err");return;}
+  st=sessionInit(d.cards,{shuffle:$("opt-shuffle").checked,dueOnly:$("opt-dueonly").checked,day:day0,seed:Date.now()%100000});
+  if(!st.planned){
+    status("Nothing is due today. Start with all cards off, or review tomorrow (next due: "+dayToIso(nextDue(d))+").","err");
+    st=null;
+  } else status("","");
+  revealed=false;
+  renderSession();showCard();
+}
+function nextDue(d){
+  var m=null;for(var i=0;i<d.cards.length;i++){var c=d.cards[i];if(c.last==null)return day0;var t=dueDay(c);if(m===null||t<m)m=t;}
+  return m===null?day0:m;
+}
+function answer(correct,boxOverride){
+  if(!st)return;
+  var idx=sessionCurrent(st);if(idx<0)return;
+  var d=current();
+  var upd=sessionAnswer(st,d.cards,idx,correct,day0,boxOverride||0);
+  var c=d.cards[idx];c.box=upd.box;c.last=upd.last;
+  d.stats.reviews=(d.stats.reviews||0)+1;d.stats.correct=(d.stats.correct||0)+(correct?1:0);
+  save();
+  revealed=false;
+  if(c._badge)c._badge.textContent="B"+c.box;
+  renderSession();renderStats();showCard();
+}
+function reportImport(r,mode){
+  var host=$("report");host.textContent="";
+  function line(cls,txt){host.appendChild(el("div",cls,txt));}
+  if(r.errors.length)r.errors.slice(0,20).forEach(function(e){line("e","Line "+e.line+": "+e.reason);});
+  if(r.errors.length>20)line("e","("+(r.errors.length-20)+" more errors not listed)");
+  if(r.warnings.length)r.warnings.slice(0,10).forEach(function(w){line("w","Line "+w.line+": "+w.reason);});
+  line(r.cards.length?"g":"",r.cards.length+" card(s) parsed from "+mode+"-separated text; skipped "+r.skipped.blank+" blank, "+r.skipped.comment+" comment line(s)"+(r.truncated?"; truncated at the limit":"")+".");
+}
+function doImport(mode){
+  var d=current();if(!d)return;
+  var txt=$("import-text").value;
+  if(!txt.trim()){status("Nothing to import: the text box is empty.","err");return;}
+  var r=parseDeckText(txt,$("import-delim").value);
+  reportImport(r,r.delimiter==="\t"?"tab":r.delimiter);
+  if(!r.cards.length){status("Import failed: no valid rows found.","err");return;}
+  if(mode==="replace"){
+    if(!confirm("Replace \""+d.name+"\" ("+d.cards.length+" cards) with "+r.cards.length+" imported cards?"))return;
+    d.cards=[];d.cid=0;d.stats={reviews:0,correct:0};st=null;
+  }
+  r.cards.forEach(function(c){d.cards.push(mkCard(d,c.front,c.back,c.box));});
+  save();renderAll();status("Imported "+r.cards.length+" card(s).","ok");
+}
+function download(name,text,type){
+  var blob=new Blob([text],{type:type||"text/csv;charset=utf-8"});
+  var url=URL.createObjectURL(blob),a=document.createElement("a");
+  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(url);},5000);
+}
+function exportDeck(){
+  var d=current();if(!d||!d.cards.length){status("Nothing to export.","err");return;}
+  download(d.name.replace(/[^\w\- ]+/g,"").trim().replace(/\s+/g,"-").toLowerCase()||"deck",""
+    ,"text/csv");
+}
+function renderAll(){renderDeckSelect();renderCardList();renderStats();showCard();}
+
+function init(){
+  loadAll();
+  $("btn-start").addEventListener("click",startSession);
+  $("btn-reveal").addEventListener("click",function(){revealed=true;showCard();$("btn-wrong").disabled=false;$("btn-right").disabled=false;});
+  $("btn-wrong").addEventListener("click",function(){answer(false,0);});
+  $("btn-right").addEventListener("click",function(){answer(true,0);});
+  $("deck-select").addEventListener("change",function(){deckId=this.value;st=null;revealed=false;renderAll();});
+  $("btn-new").addEventListener("click",function(){
+    var n=prompt("New deck name","My deck");if(n==null)return;
+    n=n.trim().slice(0,60)||"Untitled deck";
+    var d=mkDeck(n);decks.push(d);deckId=d.id;st=null;save();renderAll();});
+  $("btn-rename").addEventListener("click",function(){
+    var d=current();if(!d)return;
+    var n=prompt("Rename deck",d.name);if(n==null)return;
+    d.name=n.trim().slice(0,60)||d.name;save();renderAll();});
+  $("btn-del-deck").addEventListener("click",function(){
+    var d=current();if(!d)return;
+    if(!confirm("Delete deck \""+d.name+"\" with "+d.cards.length+" card(s)? This cannot be undone."))return;
+    decks=decks.filter(function(x){return x.id!==d.id;});
+    if(!decks.length)seedDefault();
+    deckId=decks[0].id;st=null;save();renderAll();});
+  $("btn-add").addEventListener("click",function(){
+    var d=current();if(!d)return;
+    if(d.cards.length>=MAX_CARDS){status("Deck is at the "+MAX_CARDS+" card limit.","err");return;}
+    d.cards.push(mkCard(d,"front "+(d.cards.length+1),"back "+(d.cards.length+1),1));
+    save();renderAll();});
+  $("btn-reset").addEventListener("click",function(){
+    var d=current();if(!d)return;
+    if(!confirm("Reset every card in \""+d.name+"\" back to box 1 and forget due dates?"))return;
+    d.cards.forEach(function(c){c.box=1;c.last=null;});d.stats={reviews:0,correct:0};st=null;save();renderAll();});
+  $("btn-export").addEventListener("click",function(){
+    var d=current();if(!d||!d.cards.length){status("Nothing to export.","err");return;}
+    var csv=toCsv(d.cards,",");
+    download(((d.name||"deck").replace(/[^\w. -]+/g,"").replace(/\s+/g,"-")||"deck")+".csv",csv);
+    status("CSV exported (front, back, box).","ok");});
+  $("btn-export-all").addEventListener("click",function(){
+    var blob=[];
+    decks.forEach(function(d){
+      blob.push("# deck: "+d.name);
+      blob.push(toCsv(d.cards,",").trim());
+    });
+    download("flashcards-decks.csv",blob.join("\n\n")+"\n");
+    status("All "+decks.length+" deck(s) exported as one CSV with \"# deck:\" markers.","ok");});
+  $("btn-imp-append").addEventListener("click",function(){doImport("append");});
+  $("btn-imp-replace").addEventListener("click",function(){doImport("replace");});
+  $("import-file").addEventListener("change",function(){
+    var f=this.files&&this.files[0];if(!f)return;
+    if(f.size>MAX_INPUT){status("File is "+f.size+" bytes; imports are limited to "+MAX_INPUT+" characters.","err");this.value="";return;}
+    var fr=new FileReader();
+    fr.onerror=function(){status("Could not read that file.","err");};
+    fr.onload=function(){
+      if(typeof fr.result!=="string"){status("Could not read that file as text.","err");return;}
+      $("import-text").value=fr.result;
+      status("Loaded "+f.name+" into the import box \u2014 choose Append or Replace.","");
+    };
+    fr.readAsText(f,"utf-8");
+    this.value="";
+  });
+  ["opt-shuffle","opt-dueonly","opt-boxmode"].forEach(function(id){
+    $(id).addEventListener("change",function(){saveSettings();if(st)renderSession();});
+  });
+  document.addEventListener("keydown",function(e){
+    var t=e.target;
+    if(t&&(t.tagName==="TEXTAREA"||t.tagName==="INPUT"||t.tagName==="SELECT"))return;
+    if(e.ctrlKey||e.metaKey||e.altKey)return;
+    var k=e.key;
+    if(k===" "||k==="Spacebar"){e.preventDefault();if(!$("btn-reveal").disabled){revealed=true;$("btn-wrong").disabled=false;$("btn-right").disabled=false;showCard();}return;}
+    if(/^[1-5]$/.test(k)){
+      if($("opt-boxmode").checked){e.preventDefault();answer(k==="1"?false:true,parseInt(k,10));return;}
+      if(k==="1"){e.preventDefault();answer(false,0);}
+      else if(k==="2"){e.preventDefault();answer(true,0);}
+    }
+  });
+  if(!store.persistent){
+    var f=$("foot");
+    f.textContent=f.textContent+" Decks, boxes and preferences are session only, not persisted (embedded sandbox).";
+  }
+  $("about-model").hidden=false;
+  renderAll();
+  status("", "");
+}
+init();
+</script>
+</body>
+</html>

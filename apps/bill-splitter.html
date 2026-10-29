@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<!--
+  Nucleus catalogue app: Bill Splitter.
+  Self-contained offline single file. Contract: apps/CATALOG.md.
+  All money maths in integer cents. Shares use largest-remainder allocation, so allocated
+  cents always sum exactly to the amount due (ties break toward the lowest person index).
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bill Splitter</title>
+<script type="application/nucleus+json">
+{"id":"bill-splitter","name":"Bill Splitter","cat":"Everyday Utilities",
+ "desc":"Split bills with tax, tip and cent-exact shares.","icon":"calc","w":880,"h":640}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --ok:#3ecf8e; --bad:#ef6e6e;
+  --radius:10px; --font:13px;
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+  --ok:#1a8f5c; --bad:#b3403f;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}
+.col{display:flex;flex-direction:column;gap:10px;min-width:250px;flex:1 1 320px}
+.results{flex:1 1 360px;min-width:260px;display:flex;flex-direction:column;gap:10px}
+fieldset{border:1px solid var(--border);border-radius:var(--radius);padding:10px;display:flex;flex-direction:column;gap:8px}
+legend{color:var(--muted);padding:0 4px;font-size:12px}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+button,input,select{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.mini{padding:2px 8px}
+input[type=text],select{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 8px;width:100%}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+label{display:flex;flex-direction:column;gap:3px;font-size:12px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+#status{font-size:12px;min-height:16px}
+#status.err{color:var(--bad)}
+#status.ok{color:var(--ok)}
+.check{font-size:13px}
+.check.ok{color:var(--ok)}
+.check.bad{color:var(--bad)}
+pre#receipt{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px;
+  font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:pre-wrap;overflow:auto;max-height:32vh;margin:0}
+.itemrow input,.itemrow select{width:auto}
+@media (max-width:640px){main{flex-direction:column}.col,.results{flex:1 1 auto;min-width:0}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header><h1>Bill Splitter</h1><span class="muted">Largest-remainder shares — parts always sum to the whole</span></header>
+<main>
+  <div class="col">
+    <fieldset>
+      <legend>People</legend>
+      <div class="row">
+        <button class="btn mini" id="add-person" type="button">+ Add person</button>
+        <button class="btn mini" id="remove-person" type="button">− Remove last</button>
+      </div>
+      <div id="people-list"></div>
+    </fieldset>
+    <fieldset>
+      <legend>Amounts</legend>
+      <div class="row">
+        <label style="flex:1">Currency symbol
+          <input type="text" id="in-cur" value="$" maxlength="3"></label>
+      </div>
+      <div id="subtotal-row">
+        <label for="in-subtotal">Subtotal (before tax/tip)
+          <input type="text" id="in-subtotal" inputmode="decimal" value="84.50"></label>
+      </div>
+      <div class="row">
+        <label style="flex:1">Discount
+          <select id="disc-mode"><option value="none" selected>none</option><option value="pct">%</option><option value="amt">amount</option></select></label>
+        <label style="flex:1" id="disc-val-label" hidden>Value
+          <input type="text" id="disc-val" inputmode="decimal" value=""></label>
+      </div>
+      <div class="row">
+        <label style="flex:1">Tax
+          <select id="tax-mode"><option value="pct" selected>rate %</option><option value="amt">amount</option></select></label>
+        <label style="flex:1">Tax value
+          <input type="text" id="tax-val" inputmode="decimal" value="8.25"></label>
+      </div>
+      <div class="row">
+        <label style="flex:1">Tip
+          <select id="tip-mode"><option value="pct" selected>rate %</option><option value="amt">amount</option><option value="pp">per person</option><option value="none">none</option></select></label>
+        <label style="flex:1">Tip value
+          <input type="text" id="tip-val" inputmode="decimal" value="18"></label>
+      </div>
+      <label for="tip-base">Tip calculated on
+        <select id="tip-base"><option value="base" selected>discounted subtotal (pre-tax)</option><option value="withtax">discounted subtotal + tax</option></select></label>
+    </fieldset>
+    <fieldset>
+      <legend>Split mode</legend>
+      <div class="row">
+        <label style="flex:1">How
+          <select id="split-mode"><option value="weight" selected>uneven shares (weights)</option><option value="items">per-person item assignment</option></select></label>
+      </div>
+      <div id="items-editor" hidden>
+        <div id="items-list"></div>
+        <button class="btn mini" id="add-item" type="button">+ Add item</button>
+      </div>
+    </fieldset>
+    <div id="status" aria-live="polite" class="muted"></div>
+    <p class="muted" style="margin:0">Estimates for splitting a real bill — not financial advice. Rounding: discount/tax/tip are each rounded to the nearest cent (half-up); people-shares use largest-remainder allocation (deterministic: ties favour the first person), so the allocated cents always add up to the exact amount due.</p>
+  </div>
+  <div class="results">
+    <table aria-label="Totals" id="totals-table"><tbody id="totals-body"></tbody></table>
+    <div class="check" id="sum-check" aria-live="polite"></div>
+    <div class="tablewrap" style="overflow:auto">
+      <table aria-label="Per-person shares"><thead><tr>
+        <th>Person</th><th>Items/Sub</th><th>Tax</th><th>Tip</th><th>Total</th>
+      </tr></thead><tbody id="shares-body"></tbody></table>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="copy-btn" type="button">Copy summary</button>
+      <button class="btn" id="dl-btn" type="button">Download receipt (.txt)</button>
+    </div>
+    <pre id="receipt" aria-label="Receipt summary text"></pre>
+  </div>
+</main>
+<footer><span class="muted" id="foot">Runs offline. Data stays on this device.</span></footer>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-bill-splitter-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-bill-splitter-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+</script>
+<script>
+"use strict";
+/* ================= Bill logic (pure, integer cents; unit-tested under node) ================= */
+function halfUp(x){return Math.floor(x+0.5);}                  /* x >= 0 */
+function parseCents(str){
+  var s=String(str==null?"":str).trim().replace(/[,\s ]/g,"").replace(/^\+/,"");
+  if(!/^\d*(\.\d*)?$/.test(s)||s===""||s===".")return null;
+  var v=Number(s);
+  if(!isFinite(v))return null;
+  var c=halfUp(v*100);
+  return c>1e8?null:c;                                          /* cap $1,000,000.00 per field */
+}
+function parsePct(str){
+  var s=String(str==null?"":str).trim();
+  if(!/^\d*(\.\d*)?$/.test(s)||s===""||s===".")return null;
+  var v=Number(s);
+  return isFinite(v)?v:null;
+}
+function formatCents(c,symbol){
+  symbol=symbol||"";
+  var abs=Math.abs(c),d=String(Math.floor(abs/100)),r=String(abs%100);
+  while(r.length<2)r="0"+r;
+  d=d.replace(/\B(?=(\d{3})+(?!\d))/g,",");
+  return (c<0?"-":"")+symbol+d+"."+r;
+}
+/* Largest-remainder allocation of `total` cents by `weights` (non-negative integers).
+   Deterministic: sort by remainder desc, then index asc. Sum(out) === total always. */
+function allocate(total,weights){
+  if(!Number.isInteger(total)||total<0)return{error:"Total must be a non-negative integer of cents."};
+  if(!Array.isArray(weights)||weights.length<1||weights.length>200)return{error:"Need 1-200 weights."};
+  var sum=0;
+  for(var i=0;i<weights.length;i++){
+    if(!Number.isInteger(weights[i])||weights[i]<0||weights[i]>1000000)
+      return{error:"Every weight must be a whole number 0-1,000,000."};
+    sum+=weights[i];
+  }
+  if(sum<=0)return{error:"At least one weight must be positive."};
+  if(total>1e10)return{error:"Total exceeds supported range."};
+  var out=[],fracs=[],acc=0;
+  for(i=0;i<weights.length;i++){
+    var exact=total*weights[i]/sum;
+    var f=Math.floor(exact);
+    out.push(f);acc+=f;fracs.push(exact-f);
+  }
+  var leftover=total-acc;
+  var order=weights.map(function(_,idx2){return idx2;})
+    .sort(function(a,b){return (fracs[b]-fracs[a])||(a-b);});
+  for(i=0;i<leftover;i++)out[order[i]]++;
+  return{out:out};
+}
+/* Compute the bill. inp={subtotalCents, discMode, discPct, discCents, taxMode, taxPct, taxCents,
+   tipMode, tipPct, tipCents, tipPerPersonCents, people, tipBase} */
+function computeBill(inp){
+  var P=inp.subtotalCents;
+  if(!Number.isInteger(P)||P<0||P>1e8)return{error:"Subtotal must be between 0 and 1,000,000."};
+  var n=inp.people;
+  if(!Number.isInteger(n)||n<1||n>200)return{error:"Need 1-200 people."};
+  var discount=0;
+  if(inp.discMode==="pct"){
+    var dp=inp.discPct;
+    if(dp==null||dp<0||dp>100)return{error:"Discount rate must be 0-100%."};
+    discount=halfUp(P*dp/100);
+  }else if(inp.discMode==="amt"){
+    if(!Number.isInteger(inp.discCents)||inp.discCents<0)return{error:"Discount amount must be 0 or more."};
+    discount=Math.min(inp.discCents,P);
+    if(inp.discCents>P)return{error:"Discount cannot exceed the subtotal."};
+  }else if(inp.discMode!=="none")return{error:"Unknown discount mode."};
+  var base=P-discount;
+  var tax=0;
+  if(inp.taxMode==="pct"){
+    var tp=inp.taxPct;
+    if(tp==null||tp<0||tp>60)return{error:"Tax rate must be 0-60%."};
+    tax=halfUp(base*tp/100);
+  }else if(inp.taxMode==="amt"){
+    if(!Number.isInteger(inp.taxCents)||inp.taxCents<0||inp.taxCents>1e8)return{error:"Tax amount must be between 0 and 1,000,000."};
+    tax=inp.taxCents;
+  }else return{error:"Unknown tax mode."};
+  var tip=0,tipPerPerson=null;
+  var tipBaseAmt=inp.tipBase==="withtax"?base+tax:base;
+  if(inp.tipMode==="pct"){
+    var rp=inp.tipPct;
+    if(rp==null||rp<0||rp>100)return{error:"Tip rate must be 0-100%."};
+    tip=halfUp(tipBaseAmt*rp/100);
+  }else if(inp.tipMode==="amt"){
+    if(!Number.isInteger(inp.tipCents)||inp.tipCents<0||inp.tipCents>1e8)return{error:"Tip amount must be between 0 and 1,000,000."};
+    tip=inp.tipCents;
+  }else if(inp.tipMode==="pp"){
+    if(!Number.isInteger(inp.tipPerPersonCents)||inp.tipPerPersonCents<0||inp.tipPerPersonCents>1e8)
+      return{error:"Per-person tip must be between 0 and 1,000,000."};
+    tipPerPerson=inp.tipPerPersonCents;
+    tip=tipPerPerson*n;
+  }else if(inp.tipMode!=="none")return{error:"Unknown tip mode."};
+  var totalDue=base+tax+tip;
+  if(totalDue>1e10)return{error:"Total exceeds the supported range."};
+  return{subtotal:P,discount:discount,base:base,tax:tax,tip:tip,totalDue:totalDue,
+         tipPerPerson:tipPerPerson,n:n,people:n};
+}
+/* Split: weights mode -> allocate(base), allocate(tax) by same weights, tip by weights or pp.
+   items mode -> weights = per-person item subtotals.
+   Returns {error} or {sub, tax, tip, total, sums} arrays. */
+function splitShares(bill,weights){
+  if(bill.error)return{error:bill.error};
+  var n=bill.people;
+  if(!Array.isArray(weights)||weights.length!==n)return{error:"Weights must match the number of people."};
+  var sub=allocate(bill.base,weights);
+  if(sub.error)return{error:sub.error};
+  var tax=allocate(bill.tax,weights);
+  if(tax.error)return{error:tax.error};
+  var tip;
+  if(bill.tipPerPerson!=null){
+    tip=[];for(var i=0;i<n;i++)tip.push(bill.tipPerPerson);
+    if(tip.reduce(function(a,b2){return a+b2;},0)!==bill.tip)
+      return{error:"Internal: per-person tip mismatch."};
+  }else{
+    var w=weights.slice();
+    var sum=w.reduce(function(a,b2){return a+b2;},0);
+    if(sum<=0){w=w.map(function(){return 1;});}                /* nobody assigned: fall back to even */
+    tip=allocate(bill.tip,w);
+    if(tip.error)return{error:tip.error};
+  }
+  var total=[],sums=[];
+  for(i=0;i<n;i++){
+    total.push(sub.out[i]+tax.out[i]+tip.out[i]);
+  }
+  sums=[sumOf(sub.out),sumOf(tax.out),sumOf(tip.out),sumOf(total)];
+  if(sums[0]!==bill.base||sums[1]!==bill.tax||sums[2]!==bill.tip||sums[3]!==bill.totalDue)
+    return{error:"Internal consistency check failed (should be impossible)."};
+  return{sub:sub.out,tax:tax.out,tip:tip.out,total:total,sums:sums};
+}
+function sumOf(a){return a.reduce(function(x,y){return x+y;},0);}
+function itemWeights(items,n){
+  var w=new Array(n).fill(0);
+  for(var i=0;i<items.length;i++){
+    var it=items[i];
+    if(!Number.isInteger(it.cents)||it.cents<0||it.cents>1e8)return{error:"Item amounts must be 0-1,000,000."};
+    if(!Array.isArray(it.assigned)||it.assigned.length===0)return{error:"Every item needs at least one person."};
+    for(var j=0;j<it.assigned.length;j++){
+      var a=it.assigned[j];
+      if(!Number.isInteger(a)||a<0||a>=n)return{error:"Item assignment references an unknown person."};
+    }
+    var share=allocate(it.cents,it.assigned.map(function(){return 1;}));
+    if(share.error)return{error:share.error};
+    for(j=0;j<it.assigned.length;j++)w[it.assigned[j]]+=share.out[j];
+  }
+  return{weights:w,itemSubtotal:sumOfItems(items)};
+}
+function sumOfItems(items){return items.reduce(function(a,it){return a+it.cents;},0);}
+function buildReceipt(names,bill,split,symbol,modeNote){
+  var L=[];
+  L.push("=".repeat(34));
+  L.push("  BILL SPLIT RECEIPT");
+  L.push("=".repeat(34));
+  L.push(pad("Subtotal",formatCents(bill.subtotal,symbol)));
+  if(bill.discount>0)L.push(pad("Discount","-"+formatCents(bill.discount,symbol)));
+  L.push(pad("After discount",formatCents(bill.base,symbol)));
+  L.push(pad("Tax",formatCents(bill.tax,symbol)));
+  L.push(pad("Tip",formatCents(bill.tip,symbol)));
+  L.push(pad("TOTAL DUE",formatCents(bill.totalDue,symbol)));
+  L.push("-".repeat(34));
+  L.push(modeNote);
+  L.push("-".repeat(34));
+  for(var i=0;i<names.length;i++){
+    L.push(pad(names[i]||("Person "+(i+1)),formatCents(split.total[i],symbol)));
+    L.push("   sub "+formatCents(split.sub[i],symbol)+" + tax "+formatCents(split.tax[i],symbol)+
+           " + tip "+formatCents(split.tip[i],symbol));
+  }
+  L.push("-".repeat(34));
+  var sum=split.total.reduce(function(a,b){return a+b;},0);
+  L.push(pad("Sum of shares",formatCents(sum,symbol)));
+  L.push("Check: shares total = amount due: "+(sum===bill.totalDue?"PASS":"FAIL"));
+  L.push("=".repeat(34));
+  return L.join("\n")+"\n";
+}
+function pad(l,r){
+  var need=Math.max(1,34-l.length-r.length);
+  return l+" ".repeat(need)+r;
+}
+if(typeof module!=="undefined")module.exports={halfUp:halfUp,parseCents:parseCents,parsePct:parsePct,formatCents:formatCents,allocate:allocate,computeBill:computeBill,splitShares:splitShares,itemWeights:itemWeights,sumOfItems:sumOfItems,buildReceipt:buildReceipt,sumOf:sumOf};
+</script>
+<script>
+"use strict";
+/* ================= UI wiring ================= */
+function $(id){return document.getElementById(id);}
+function setStatus(msg,cls){var el=$("status");el.textContent=msg||"";el.className=cls||"muted";}
+var people=[{name:"Alex",weight:"1"},{name:"Beth",weight:"1"},{name:"Ced",weight:"1"}];
+var items=[{name:"",cents:"",assigned:[]}];
+var lastResult=null;
+function sym(){return $("in-cur").value||"";}
+function renderPeople(){
+  var box=$("people-list");
+  while(box.firstChild)box.removeChild(box.firstChild);
+  people.forEach(function(p,i){
+    var row=document.createElement("div");row.className="row";
+    var nm=document.createElement("input");nm.type="text";nm.value=p.name;nm.maxLength=40;
+    nm.setAttribute("aria-label","Person "+(i+1)+" name");
+    nm.addEventListener("input",function(){p.name=this.value;recalc();});
+    var wt=document.createElement("input");wt.type="text";wt.inputMode="numeric";wt.value=p.weight;
+    wt.style.width="70px";wt.setAttribute("aria-label","Weight for "+(p.name||("person "+(i+1))));
+    wt.addEventListener("input",function(){p.weight=this.value;recalc();});
+    var lbl=document.createElement("span");lbl.className="muted";lbl.textContent="wt";
+    row.appendChild(nm);row.appendChild(lbl);row.appendChild(wt);
+    box.appendChild(row);
+  });
+  renderItems();
+}
+function renderItems(){
+  var box=$("items-list");
+  while(box.firstChild)box.removeChild(box.firstChild);
+  if($("split-mode").value!=="items"){lastResult=null;return;}
+  items.forEach(function(it,i){
+    var row=document.createElement("div");row.className="row itemrow";
+    var nm=document.createElement("input");nm.type="text";nm.value=it.name;nm.maxLength=60;
+    nm.placeholder="Item name";nm.setAttribute("aria-label","Item "+(i+1)+" name");
+    nm.addEventListener("input",function(){it.name=this.value;recalc();});
+    var am=document.createElement("input");am.type="text";am.inputMode="decimal";am.value=it.centsText||"";
+    am.style.width="90px";am.placeholder="0.00";am.setAttribute("aria-label","Item "+(i+1)+" amount");
+    am.addEventListener("input",function(){it.centsText=this.value;recalc();});
+    row.appendChild(nm);row.appendChild(am);
+    people.forEach(function(p,j){
+      var lb=document.createElement("label");lb.className="row";lb.style.flexDirection="row";
+      var cb=document.createElement("input");cb.type="checkbox";cb.checked=it.assigned.indexOf(j)>=0;
+      cb.setAttribute("aria-label","Assign item "+(i+1)+" to "+(p.name||("person "+(j+1))));
+      cb.addEventListener("change",function(){
+        var pos=it.assigned.indexOf(j);
+        if(this.checked&&pos<0)it.assigned.push(j);
+        if(!this.checked&&pos>=0)it.assigned.splice(pos,1);
+        recalc();
+      });
+      lb.appendChild(cb);
+      var t=document.createElement("span");t.textContent=p.name||("#"+(j+1));t.style.fontSize="11px";
+      lb.appendChild(t);
+      row.appendChild(lb);
+    });
+    var rm=document.createElement("button");rm.type="button";rm.className="btn mini";rm.textContent="×";
+    rm.setAttribute("aria-label","Remove item "+(i+1));
+    rm.addEventListener("click",function(){items.splice(i,1);renderPeople();recalc();});
+    row.appendChild(rm);
+    box.appendChild(row);
+  });
+}
+function collectBill(){
+  var discMode=$("disc-mode").value,taxMode=$("tax-mode").value==="pct"?"pct":"amt";
+  var tipMode=$("tip-mode").value;
+  var subStr=$("in-subtotal").value;
+  var subtotalCents;
+  if($("split-mode").value==="items"){
+    var cs=items.map(function(it){return parseCents(it.centsText);});
+    if(cs.some(function(c){return c==null;}))return{error:"Every item needs a valid amount."};
+    subtotalCents=sumOfItems(items.map(function(it,k){return{cents:cs[k]};}));
+  }else{
+    subtotalCents=parseCents(subStr);
+    if(subtotalCents==null)return{error:"Enter a valid subtotal."};
+  }
+  var inp={
+    subtotalCents:subtotalCents,
+    discMode:discMode,
+    discPct:parsePct($("disc-val").value),
+    discCents:parseCents($("disc-val").value),
+    taxMode:taxMode,
+    taxPct:parsePct($("tax-val").value),
+    taxCents:parseCents($("tax-val").value),
+    tipMode:tipMode,
+    tipPct:parsePct($("tip-val").value),
+    tipCents:parseCents($("tip-val").value),
+    tipPerPersonCents:parseCents($("tip-val").value),
+    people:people.length,
+    tipBase:$("tip-base").value
+  };
+  return{inp:inp,subtotalCents:subtotalCents};
+}
+function recalc(){
+  lastResult=null;
+  var c=collectBill();
+  if(c.error){setStatus(c.error,"err");clearResults();return;}
+  var bill=computeBill(c.inp);
+  if(bill.error){setStatus(bill.error,"err");clearResults();return;}
+  var weights;
+  var modeNote="";
+  if($("split-mode").value==="weight"){
+    weights=people.map(function(p){
+      var w=parsePct(p.weight);                               /* plain whole numbers, not money */
+      return w==null||!Number.isInteger(w)?null:w;
+    });
+    if(weights.some(function(w){return w==null||w<0||w>1000000;})){setStatus("Weights must be whole numbers 0-1,000,000.","err");clearResults();return;}
+    modeNote="Split by weights: "+people.map(function(p,i){return (p.name||("P"+(i+1)))+" "+p.weight;}).join(", ");
+  }else{
+    var cs=items.map(function(it){return{cents:parseCents(it.centsText)||0,assigned:it.assigned};});
+    var iw=itemWeights(cs,people.length);
+    if(iw.error){setStatus(iw.error,"err");clearResults();return;}
+    weights=iw.weights;
+    modeNote="Split by item assignment ("+items.length+" item(s)).";
+  }
+  var split=splitShares(bill,weights);
+  if(split.error){setStatus(split.error,"err");clearResults();return;}
+  lastResult={bill:bill,split:split,modeNote:modeNote};
+  setStatus("","muted");
+  renderResults(bill,split);
+}
+function clearResults(){
+  while($("totals-body").firstChild)$("totals-body").removeChild($("totals-body").firstChild);
+  while($("shares-body").firstChild)$("shares-body").removeChild($("shares-body").firstChild);
+  $("sum-check").textContent="";$("receipt").textContent="";
+}
+function renderResults(bill,split){
+  var tb=$("totals-body");
+  while(tb.firstChild)tb.removeChild(tb.firstChild);
+  var rows=[["Subtotal",bill.subtotal],["Discount",-bill.discount],["After discount",bill.base],
+             ["Tax",bill.tax],["Tip",bill.tip],["Total due",bill.totalDue]];
+  if(bill.discount===0)rows.splice(1,1);
+  rows.forEach(function(r){
+    var tr=document.createElement("tr");
+    var t=document.createElement("td");t.textContent=r[0];
+    var v=document.createElement("td");v.textContent=formatCents(r[1],sym());
+    if(r[0]==="Total due"){t.style.fontWeight="600";v.style.fontWeight="600";}
+    tr.appendChild(t);tr.appendChild(v);tb.appendChild(tr);
+  });
+  var sb=$("shares-body");
+  while(sb.firstChild)sb.removeChild(sb.firstChild);
+  people.forEach(function(p,i){
+    var tr=document.createElement("tr");
+    [p.name||("Person "+(i+1)),formatCents(split.sub[i],sym()),formatCents(split.tax[i],sym()),
+     formatCents(split.tip[i],sym()),formatCents(split.total[i],sym())].forEach(function(txt,k){
+      var td=document.createElement("td");td.textContent=txt;tr.appendChild(td);
+    });
+    sb.appendChild(tr);
+  });
+  var sum=split.total.reduce(function(a,b){return a+b;},0);
+  var ok=sum===bill.totalDue;
+  var ck=$("sum-check");
+  ck.textContent=(ok?"Check: ":"BROKEN CHECK: ")+split.total.map(function(t){return formatCents(t,sym());}).join(" + ")+
+    " = "+formatCents(sum,sym())+" = amount due "+formatCents(bill.totalDue,sym())+(ok?" ✓":" ✗");
+  ck.className="check "+(ok?"ok":"bad");
+  var names=people.map(function(p,i){return p.name||("Person "+(i+1));});
+  $("receipt").textContent=buildReceipt(names,bill,split,sym(),modeNote);
+}
+function copySummary(){
+  if(!lastResult){setStatus("Calculate a split first.","err");return;}
+  var txt=$("receipt").textContent;
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){setStatus("Summary copied to clipboard.","ok");},
+      function(){setStatus("Clipboard blocked by the browser — select the receipt text and copy manually.","err");});
+  }else{
+    setStatus("Clipboard not available in this context — select the receipt text and copy manually.","err");
+  }
+}
+function downloadReceipt(){
+  if(!lastResult){setStatus("Calculate a split first.","err");return;}
+  try{
+    var blob=new Blob([$("receipt").textContent],{type:"text/plain;charset=utf-8"});
+    var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="bill-split-receipt.txt";
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){URL.revokeObjectURL(a.href);},5000);
+    setStatus("Receipt downloaded (printable plain text).","ok");
+  }catch(e){setStatus("Download failed in this browser context.","err");}
+}
+function init(){
+  $("add-person").addEventListener("click",function(){
+    if(people.length>=200)return;
+    people.push({name:"Person "+(people.length+1),weight:"1"});
+    items.forEach(function(it){it.assigned=it.assigned.slice();});
+    renderPeople();recalc();
+  });
+  $("remove-person").addEventListener("click",function(){
+    if(people.length<=1)return;
+    people.pop();
+    items.forEach(function(it){it.assigned=it.assigned.filter(function(a){return a<people.length;});});
+    renderPeople();recalc();
+  });
+  $("add-item").addEventListener("click",function(){
+    items.push({name:"",cents:"",assigned:[]});
+    renderItems();recalc();
+  });
+  $("disc-mode").addEventListener("change",function(){
+    $("disc-val-label").hidden=this.value==="none";recalc();});
+  ["in-cur","in-subtotal","disc-val","tax-mode","tax-val","tip-mode","tip-val","tip-base","split-mode"].forEach(function(id){
+    $(id).addEventListener("input",recalc);
+    $(id).addEventListener("change",function(){if(id==="split-mode")renderItems();recalc();});
+  });
+  $("split-mode").addEventListener("change",function(){
+    var itemsMode=this.value==="items";
+    $("items-editor").hidden=!itemsMode;
+    $("subtotal-row").hidden=itemsMode;
+    if(itemsMode&&items.length&&items[0].cents==="")items=[{name:"Item 1",cents:"",assigned:[]}];
+    renderItems();recalc();
+  });
+  $("copy-btn").addEventListener("click",copySummary);
+  $("dl-btn").addEventListener("click",downloadReceipt);
+  var saved=store.get("v1",null);
+  if(saved&&Array.isArray(saved.people)&&saved.people.length<=200){
+    people=saved.people.map(function(p){return{name:String(p.name||"").slice(0,40),weight:String(p.weight||"1").slice(0,20)};});
+    if(Array.isArray(saved.items))items=saved.items.slice(0,100).map(function(it){
+      return{name:String(it.name||"").slice(0,60),centsText:String(it.centsText||""),
+             assigned:Array.isArray(it.assigned)?it.assigned.filter(function(a){return Number.isInteger(a)&&a>=0&&a<people.length;}):[]};});
+  }
+  renderPeople();
+  $("disc-val-label").hidden=true;
+  recalc();
+  if(!store.persistent){$("foot").textContent=$("foot").textContent+" Inputs are session only, not persisted (embedded sandbox).";}
+}
+init();
+</script>
+</body>
+</html>

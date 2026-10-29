@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Expense Tracker</title>
+<script type="application/nucleus+json">
+{"id":"expense-tracker","name":"Expense Tracker","cat":"Everyday Utilities","desc":"Track spending with CSV export.","icon":"store","w":760,"h":540}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --radius:10px; --font:13px;
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.danger{border-color:color-mix(in srgb,red 55%,var(--border));color:#ff8080}
+html[data-theme="light"] .btn.danger{color:#c0392b}
+input[type=text],input[type=number],input[type=date],input[type=month],select{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:7px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* ---------- app ---------- */
+.layout{display:grid;grid-template-columns:minmax(300px,420px) 1fr;gap:14px;max-width:1100px;margin:0 auto}
+@media (max-width:760px){.layout{grid-template-columns:1fr}}
+.card{border:1px solid var(--border);border-radius:var(--radius);background:var(--panel);padding:12px;display:flex;flex-direction:column;gap:10px}
+.card h2{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.form-grid label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+.form-grid label.wide{grid-column:1/-1}
+.form-grid input,.form-grid select{width:100%}
+.kpi{display:flex;gap:14px;flex-wrap:wrap;align-items:baseline}
+.kpi .big{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums}
+.bars{display:flex;flex-direction:column;gap:6px}
+.bar-row{display:grid;grid-template-columns:110px 1fr 84px;gap:8px;align-items:center;font-size:12px}
+.bar-track{height:10px;border-radius:5px;background:var(--border);overflow:hidden}
+.bar-fill{height:100%;background:var(--accent);border-radius:5px;min-width:2px}
+.bar-row .amt{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+.spark{width:100%;height:52px}
+.spark path{fill:none;stroke:var(--accent);stroke-width:1.5}
+.spark path.area{fill:color-mix(in srgb,var(--accent) 18%,transparent);stroke:none}
+table.tx{width:100%;border-collapse:collapse;font-size:12px}
+table.tx th{text-align:left;color:var(--muted);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--border)}
+table.tx td{padding:4px 6px;border-bottom:1px dashed var(--border);vertical-align:top}
+table.tx td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+table.tx .ops{white-space:nowrap;display:flex;gap:4px}
+table.tx .ops .btn{padding:2px 7px;font-size:11px}
+.note-cell{max-width:180px;overflow-wrap:anywhere}
+.txbox{max-height:320px;overflow:auto}
+.filters{display:flex;gap:8px;flex-wrap:wrap}
+.filters input,.filters select{flex:1;min-width:100px}
+@media (max-width:420px){.bar-row{grid-template-columns:80px 1fr 70px}}
+</style>
+</head>
+<body>
+<header><h1>Expense Tracker</h1><span class="muted">Local-first, CSV/JSON export</span></header>
+<main>
+<div class="layout">
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div class="card">
+      <h2 id="formTitle">Add expense</h2>
+      <form class="form-grid" id="txForm" autocomplete="off">
+        <label>Amount
+          <input type="number" id="fAmount" step="any" min="0" inputmode="decimal" required placeholder="0.00">
+        </label>
+        <label>Date
+          <input type="date" id="fDate" required>
+        </label>
+        <label>Category
+          <select id="fCat"></select>
+        </label>
+        <label>New category (optional)
+          <input type="text" id="fNewCat" maxlength="24" placeholder="adds to list">
+        </label>
+        <label class="wide">Note
+          <input type="text" id="fNote" maxlength="140" placeholder="what was it for?">
+        </label>
+        <div class="row wide" style="grid-column:1/-1">
+          <button type="submit" class="btn primary" id="saveBtn">Add</button>
+          <button type="button" class="btn" id="cancelEdit" style="display:none">Cancel edit</button>
+          <span class="muted" id="formMsg"></span>
+        </div>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Dashboard · <span id="dashMonth"></span></h2>
+      <div class="kpi">
+        <div class="big" id="monthTotal">—</div>
+        <div class="muted" id="monthCount"></div>
+        <label class="muted" style="margin-left:auto">Currency <input type="text" id="curIn" maxlength="3" size="2" aria-label="Currency symbol"></label>
+      </div>
+      <div class="bars" id="catBars"></div>
+      <h2>Daily spend</h2>
+      <svg class="spark" id="spark" viewBox="0 0 300 52" preserveAspectRatio="none" role="img" aria-label="Daily spending sparkline for the selected month"></svg>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Transactions</h2>
+    <div class="filters">
+      <input type="month" id="flMonth" aria-label="Filter by month">
+      <select id="flCat" aria-label="Filter by category"></select>
+      <input type="text" id="flSearch" placeholder="Search notes…" aria-label="Search notes">
+    </div>
+    <div class="row" style="font-size:12px">
+      <button class="btn" id="expJsonBtn">Export JSON</button>
+      <button class="btn" id="expCsvBtn">Export CSV</button>
+      <button class="btn" id="impBtn">Import JSON…</button>
+      <input type="file" id="impFile" accept=".json,application/json" style="display:none">
+      <span class="muted" id="impMsg"></span>
+    </div>
+    <div class="txbox">
+      <table class="tx"><thead><tr><th>Date</th><th>Category</th><th>Note</th><th>Amount</th><th>Actions</th></tr></thead>
+      <tbody id="txBody"></tbody></table>
+    </div>
+    <div class="muted" id="txSummary"></div>
+  </div>
+</div>
+</main>
+<footer><span class="muted" id="footNote">Runs offline. Data stays on this device.</span></footer>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-expense-tracker-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-expense-tracker-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+/* ---------- App logic ---------- */
+(function(){
+  "use strict";
+  var $=function(id){return document.getElementById(id);};
+  var DEF_CATS=["Food","Transport","Housing","Utilities","Entertainment","Health","Shopping","Other"];
+  var st=store.get("state",{tx:[],cats:DEF_CATS.slice(),currency:"$"});
+  if(!Array.isArray(st.tx))st.tx=[];
+  if(!Array.isArray(st.cats)||!st.cats.length)st.cats=DEF_CATS.slice();
+  if(typeof st.currency!=="string")st.currency="$";
+  var editingId=null, confirmId=null, confirmTimer=null;
+  function persist(){
+    /* cap: keep store small (~100 KB budget) */
+    if(st.tx.length>3000)st.tx=st.tx.slice(-3000);
+    store.set("state",st);
+  }
+  function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8);}
+  function today(){var d=new Date();return d.toISOString().slice(0,10);}
+  function thisMonth(){return today().slice(0,7);}
+  function money(x){
+    var s=Math.abs(x).toFixed(2),sign=x<0?"-":"";
+    return sign+st.currency+s.replace(/\B(?=(\d{3})+(?!\d))/g,",");
+  }
+  function fillCatSelects(){
+    [$("fCat"),$("flCat")].forEach(function(sel){
+      var cur=sel.value;
+      sel.textContent="";
+      if(sel===$("flCat")){
+        var o=document.createElement("option");o.value="";o.textContent="All categories";sel.appendChild(o);
+      }
+      st.cats.forEach(function(c){
+        var o=document.createElement("option");o.value=c;o.textContent=c;sel.appendChild(o);
+      });
+      if(cur)sel.value=cur;
+    });
+  }
+  /* ---- form ---- */
+  $("fDate").value=today();
+  $("txForm").addEventListener("submit",function(e){
+    e.preventDefault();
+    var amt=parseFloat($("fAmount").value);
+    if(!(amt>0)){$("formMsg").textContent="Enter a positive amount.";return;}
+    var date=$("fDate").value||today();
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){$("formMsg").textContent="Pick a valid date.";return;}
+    var cat=$("fCat").value;
+    var nc=$("fNewCat").value.trim();
+    if(nc){
+      if(nc.length<=24&&st.cats.indexOf(nc)===-1)st.cats.push(nc);
+      cat=st.cats.indexOf(nc)!==-1?nc:cat;
+      $("fNewCat").value="";
+    }
+    var note=$("fNote").value.trim().slice(0,140);
+    if(editingId){
+      var t=st.tx.find(function(x){return x.id===editingId;});
+      if(t){t.amount=Math.round(amt*100)/100;t.category=cat;t.date=date;t.note=note;}
+      editingId=null;$("saveBtn").textContent="Add";$("cancelEdit").style.display="none";$("formTitle").textContent="Add expense";
+    }else{
+      st.tx.push({id:uid(),amount:Math.round(amt*100)/100,category:cat,date:date,note:note});
+    }
+    persist();
+    $("formMsg").textContent="";
+    $("fAmount").value="";$("fNote").value="";
+    if(!flMonthTouched)$("flMonth").value=thisMonth();
+    renderAll();
+  });
+  $("cancelEdit").addEventListener("click",clearEdit);
+  function clearEdit(){
+    editingId=null;$("saveBtn").textContent="Add";$("cancelEdit").style.display="none";
+    $("formTitle").textContent="Add expense";$("fAmount").value="";$("fNote").value="";$("fDate").value=today();
+  }
+  /* ---- filters ---- */
+  var flMonthTouched=false;
+  $("flMonth").value=thisMonth();
+  $("flMonth").addEventListener("change",function(){flMonthTouched=true;renderAll();});
+  $("flCat").addEventListener("change",renderList);
+  $("flSearch").addEventListener("input",renderList);
+  $("curIn").value=st.currency;
+  $("curIn").addEventListener("change",function(){
+    st.currency=$("curIn").value.trim().slice(0,3)||"$";$("curIn").value=st.currency;
+    persist();renderAll();
+  });
+  function filtered(){
+    var m=$("flMonth").value,c=$("flCat").value,q=$("flSearch").value.trim().toLowerCase();
+    return st.tx.filter(function(t){
+      if(m&&t.date.slice(0,7)!==m)return false;
+      if(c&&t.category!==c)return false;
+      if(q&&(t.note||"").toLowerCase().indexOf(q)===-1)return false;
+      return true;
+    }).sort(function(a,b){return a.date<b.date?1:a.date>b.date?-1:0;});
+  }
+  /* ---- list ---- */
+  function renderList(){
+    var tb=$("txBody");tb.textContent="";
+    var list=filtered();
+    if(!list.length){
+      var tr=document.createElement("tr");var td=document.createElement("td");
+      td.colSpan=5;td.className="muted";td.textContent="No transactions match the filters.";
+      tr.appendChild(td);tb.appendChild(tr);
+    }
+    list.forEach(function(t){
+      var tr=document.createElement("tr");
+      var d1=document.createElement("td");d1.textContent=t.date;
+      var d2=document.createElement("td");d2.textContent=t.category;
+      var d3=document.createElement("td");d3.className="note-cell";d3.textContent=t.note||"—";
+      var d4=document.createElement("td");d4.className="num";d4.textContent=money(t.amount);
+      var d5=document.createElement("td");d5.className="ops";
+      var be=document.createElement("button");be.className="btn";be.textContent="Edit";
+      be.setAttribute("aria-label","Edit transaction "+t.date+" "+t.category);
+      be.addEventListener("click",function(){
+        editingId=t.id;$("formTitle").textContent="Edit expense";$("saveBtn").textContent="Save changes";
+        $("cancelEdit").style.display="";$("fAmount").value=t.amount;$("fDate").value=t.date;
+        fillCatSelects();$("fCat").value=t.category;$("fNote").value=t.note||"";
+        $("fAmount").focus();
+      });
+      var bd=document.createElement("button");bd.className="btn danger";bd.textContent="Delete";
+      bd.setAttribute("aria-label","Delete transaction "+t.date+" "+t.category);
+      bd.addEventListener("click",function(){
+        if(confirmId===t.id){
+          st.tx=st.tx.filter(function(x){return x.id!==t.id;});
+          confirmId=null;if(editingId===t.id)clearEdit();persist();renderAll();
+          $("txSummary").textContent="Transaction deleted.";
+          return;
+        }
+        confirmId=t.id;bd.textContent="Sure?";
+        clearTimeout(confirmTimer);
+        confirmTimer=setTimeout(function(){confirmId=null;bd.textContent="Delete";},3000);
+      });
+      d5.appendChild(be);d5.appendChild(bd);
+      [d1,d2,d3,d4,d5].forEach(function(x){tr.appendChild(x);});
+      tb.appendChild(tr);
+    });
+    var sum=list.reduce(function(a,t){return a+t.amount;},0);
+    $("txSummary").textContent=list.length+" shown · total "+money(sum);
+  }
+  /* ---- dashboard ---- */
+  function renderDash(){
+    var m=$("flMonth").value||thisMonth();
+    $("dashMonth").textContent=m||"all time";
+    var monthTx=st.tx.filter(function(t){return t.date.slice(0,7)===m;});
+    var total=monthTx.reduce(function(a,t){return a+t.amount;},0);
+    $("monthTotal").textContent=money(total);
+    $("monthCount").textContent=monthTx.length+" transactions";
+    /* per-category CSS bar chart */
+    var byCat={};
+    monthTx.forEach(function(t){byCat[t.category]=(byCat[t.category]||0)+t.amount;});
+    var entries=Object.keys(byCat).map(function(k){return [k,byCat[k]];}).sort(function(a,b){return b[1]-a[1];});
+    var max=entries.length?entries[0][1]:0;
+    var box=$("catBars");box.textContent="";
+    if(!entries.length){
+      var s=document.createElement("span");s.className="muted";s.textContent="No data for this month yet.";box.appendChild(s);
+    }
+    entries.forEach(function(e){
+      var row=document.createElement("div");row.className="bar-row";
+      var n=document.createElement("span");n.textContent=e[0];
+      var trk=document.createElement("div");trk.className="bar-track";
+      var fl=document.createElement("div");fl.className="bar-fill";
+      fl.style.width=(max?Math.max(2,100*e[1]/max):0)+"%";
+      fl.setAttribute("role","presentation");
+      trk.appendChild(fl);
+      var a=document.createElement("span");a.className="amt";a.textContent=money(e[1]);
+      row.appendChild(n);row.appendChild(trk);row.appendChild(a);
+      row.title=e[0]+": "+money(e[1])+" ("+(total?Math.round(100*e[1]/total):0)+"% of month)";
+      box.appendChild(row);
+    });
+    /* daily sparkline as inline SVG path */
+    var svg=$("spark");
+    while(svg.firstChild)svg.removeChild(svg.firstChild);
+    if(monthTx.length){
+      var y=parseInt(m.slice(0,4),10),mo=parseInt(m.slice(5,7),10);
+      var days=new Date(y,mo,0).getDate();
+      var per=new Array(days).fill(0);
+      monthTx.forEach(function(t){var d=parseInt(t.date.slice(8,10),10);if(d>=1&&d<=days)per[d-1]+=t.amount;});
+      var mx=Math.max.apply(null,per)||1,W=300,H=52,pad=4;
+      var pts=per.map(function(v,i){
+        var x=days===1?W/2:pad+(W-2*pad)*i/(days-1);
+        var yy=H-pad-(H-2*pad)*(v/mx);
+        return [x,yy];
+      });
+      var dLine=pts.map(function(p,i){return (i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1);}).join(" ");
+      var path=document.createElementNS("http://www.w3.org/2000/svg","path");
+      path.setAttribute("d",dLine);
+      var area=document.createElementNS("http://www.w3.org/2000/svg","path");
+      area.setAttribute("class","area");
+      area.setAttribute("d",dLine+" L "+pts[pts.length-1][0].toFixed(1)+" "+(H-pad)+" L "+pts[0][0].toFixed(1)+" "+(H-pad)+" Z");
+      svg.appendChild(area);svg.appendChild(path);
+    }
+  }
+  function renderAll(){fillCatSelects();renderDash();renderList();}
+  /* ---- export / import ---- */
+  function download(name,text,type){
+    var a=document.createElement("a"),blob=new Blob([text],{type:type});
+    a.href=URL.createObjectURL(blob);a.download=name;
+    document.body.appendChild(a);a.click();
+    setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1000);
+  }
+  $("expJsonBtn").addEventListener("click",function(){
+    download("expenses.json",JSON.stringify({schema:"expense-tracker/v1",currency:st.currency,cats:st.cats,tx:st.tx},null,2),"application/json");
+  });
+  $("expCsvBtn").addEventListener("click",function(){
+    function esc(v){v=String(v==null?"":v);return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
+    var rows=[["date","category","amount","note"]].concat(st.tx.map(function(t){return [t.date,t.category,t.amount,t.note||""];}));
+    download("expenses.csv",rows.map(function(r){return r.map(esc).join(",");}).join("\r\n"),"text/csv;charset=utf-8");
+  });
+  $("impBtn").addEventListener("click",function(){$("impFile").click();});
+  $("impFile").addEventListener("change",function(){
+    var f=this.files[0];this.value="";
+    if(!f)return;
+    if(f.size>2*1024*1024){$("impMsg").textContent="File over 2 MB — rejected.";return;}
+    var fr=new FileReader();
+    fr.onerror=function(){$("impMsg").textContent="Could not read file.";};
+    fr.onload=function(){
+      var data;
+      try{data=JSON.parse(String(fr.result));}catch(e){$("impMsg").textContent="Invalid JSON.";return;}
+      var r=validateImport(data);
+      if(r.error){$("impMsg").textContent=r.error;return;}
+      st.tx=r.tx;st.cats=r.cats;st.currency=r.currency;
+      persist();renderAll();
+      $("impMsg").textContent="Imported "+r.tx.length+" transactions.";
+    };
+    fr.readAsText(f);
+  });
+  function validateImport(data){
+    if(!data||typeof data!=="object")return{error:"Not an expense-tracker file."};
+    var tx=data.tx;
+    if(!Array.isArray(tx))return{error:"Missing transactions array."};
+    if(tx.length>5000)return{error:"Too many transactions (>5000)."};
+    var out=[],ok=0;
+    tx.forEach(function(t){
+      if(!t||typeof t!=="object")return;
+      var amt=Number(t.amount);
+      if(!isFinite(amt)||amt<=0||amt>1e9)return;
+      if(typeof t.date!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(t.date))return;
+      var cat=typeof t.category==="string"?t.category.slice(0,24)||"Other":"Other";
+      var note=typeof t.note==="string"?t.note.slice(0,140):"";
+      out.push({id:typeof t.id==="string"?t.id.slice(0,32):uid(),amount:Math.round(amt*100)/100,category:cat,date:t.date,note:note});
+      ok++;
+    });
+    if(!ok)return{error:"No valid transactions found."};
+    var cats=Array.isArray(data.cats)?data.cats.filter(function(c){return typeof c==="string"&&c.length&&c.length<=24;}).slice(0,60):[];
+    out.forEach(function(t){if(cats.indexOf(t.category)===-1)cats.push(t.category);});
+    if(!cats.length)cats=DEF_CATS.slice();
+    var cur=typeof data.currency==="string"?data.currency.slice(0,3):"$";
+    return{tx:out,cats:cats,currency:cur||"$",error:null};
+  }
+  document.addEventListener("keydown",function(e){
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){e.preventDefault();$("txForm").requestSubmit();}
+  });
+  if(!store.persistent){$("footNote").textContent="Session only — data is not persisted inside Nucleus (sandboxed frame). Runs offline.";}
+  fillCatSelects();renderAll();
+})();
+</script>
+</body>
+</html>

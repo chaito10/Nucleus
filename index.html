@@ -265,6 +265,7 @@ iframe.bview{width:100%;height:270px;border:1px solid var(--win-border);border-r
    NUCLEUS — single-file browser OS. Sections:
    A utils · B storage · C settings · D wallpaper · E VFS · F notes
    G window manager · H apps registry · I per-app UIs · J shell wiring
+   K icons/pins · L local apps · M catalogue apps (lazy single-file tools from apps/)
    ================================================================ */
 /* ---------- A. utils ---------- */
 const $=(s,r=document)=>r.querySelector(s);
@@ -329,6 +330,7 @@ function applySettings(){
   document.documentElement.dataset.titlesize=settings.titleSize==="default"?"":settings.titleSize;
   try{clampShortcuts();}catch{}
   ls.set("settings",settings);tickClock();
+  try{catBroadcast();}catch{/* catalogue not registered yet during boot */}
 }
 /* ---------- D. wallpaper ---------- */
 const BUILTINS=[
@@ -844,7 +846,7 @@ reg("webapp",{title:"Web App",icon:"browser",w:900,h:600,render(body,w,arg){
   load();
 }});
 reg("store",{title:"Store",icon:"store",w:620,h:540,render(body,w){
-  body.appendChild(mk("p",{class:"muted"},"Install web apps (PWAs) as app-like windows with no browser chrome. Installed apps show up in the App Drawer and can be pinned to the taskbar or desktop. They need internet. Some sites refuse to be embedded — use ↗ in the title bar to open those in a new tab."));
+  body.appendChild(mk("p",{class:"muted"},"Two kinds of apps live here. Bundled tools are single-file offline apps shipped in apps/ — installing one only adds a launcher entry; its code loads the first time you open it and nothing else is fetched. Web apps (PWAs) run in a window with no browser chrome but need internet; some sites refuse to be embedded — use ↗ in the title bar for those. Installed apps appear in the App Drawer and can be pinned to the taskbar or desktop."));
   const add=mk("div",{class:"row"});
   const nm=mk("input",{type:"text",placeholder:"Name (optional)","aria-label":"Custom app name"});nm.style.width="150px";
   const ur=mk("input",{type:"text",placeholder:"Add by URL: https://… or file:///…","aria-label":"Custom app URL"});ur.style.flex="1";ur.style.minWidth="160px";
@@ -889,25 +891,55 @@ reg("store",{title:"Store",icon:"store",w:620,h:540,render(body,w){
   const bar=mk("div",{class:"row"});
   const q=mk("input",{type:"search",placeholder:"Search store…","aria-label":"Search store"});q.style.flex="1";
   const cs=mk("select",{"aria-label":"Category"});
-  ["All","Installed",...new Set(STORE.map(s=>s.cat)),"Custom"].forEach(c=>{const o=document.createElement("option");o.value=c;o.textContent=c;cs.appendChild(o);});
   bar.append(q,cs);body.appendChild(bar);
+  const status=mk("p",{class:"muted"});body.appendChild(status);
   const list=mk("div",{class:"listbox"});list.style.maxHeight="none";body.appendChild(list);
-  function draw(){list.textContent="";const t=q.value.toLowerCase().trim();let n=0;
-    for(const s of STORE.concat(customWeb)){
-      const has=installedWeb.includes(s.id);
+  /* Category menu is rebuilt after discovery: a 1,000-tool catalogue has categories the
+     inline fallback list has never heard of. */
+  function fillCats(){const prev=cs.value;cs.textContent="";
+    const cats=[...new Set(catalogList().map(a=>a.cat).concat(STORE.map(s=>s.cat)))];
+    ["All","Installed",...cats,"Local tools","Custom"].forEach(c=>{const o=document.createElement("option");o.value=c;o.textContent=c;cs.appendChild(o);});
+    if(cats.includes(prev)||["All","Installed","Local tools","Custom"].includes(prev))cs.value=prev;}
+  const PAGE=48;let shown=PAGE;
+  function draw(){fillCats();status.textContent=catStatus();list.textContent="";
+    const t=q.value.toLowerCase().trim();const rows=[];
+    /* catalogue (bundled offline single-file tools) + remote web apps share one list */
+    const catItems=catalogList().map(a=>({kind:"cat",id:a.id,name:a.name,cat:a.cat,desc:a.desc,sub:"bundled · works offline · "+a.entry,
+      installed:()=>isCatalogInstalled(a.id),
+      install:()=>{installCatalog(a.id);openCatalogApp(a.id);draw();},
+      uninstall:()=>{if(confirm("Uninstall “"+a.name+"”? Its files stay in apps/; only the shortcut is removed.")){uninstallCatalog(a.id);draw();}}}));
+    const webItems=STORE.concat(customWeb).map(s=>({kind:"web",id:s.id,name:s.name,cat:s.cat,desc:s.desc,sub:(()=>{try{return new URL(s.url).hostname||new URL(s.url).protocol;}catch{return""}})(),
+      installed:()=>installedWeb.includes(s.id),
+      install:()=>{installWeb(s.id);draw();},
+      uninstall:()=>{uninstallWeb(s.id);draw();}}));
+    for(const s of catItems.concat(webItems)){
+      const has=s.installed();
       if(cs.value==="Installed"&&!has)continue;
-      if(cs.value!=="All"&&cs.value!=="Installed"&&s.cat!==cs.value)continue;
-      let host="";try{const u=new URL(s.url);host=u.hostname||u.protocol;}catch{}
-      if(t&&!(s.name+" "+s.desc+" "+host).toLowerCase().includes(t))continue;
-      n++;const r=mk("div",{class:"lrow"});r.appendChild(tileEl(s.name,34));
+      if(cs.value==="Local tools"&&s.kind!=="cat")continue;
+      if(cs.value!=="All"&&cs.value!=="Installed"&&cs.value!=="Local tools"&&s.cat!==cs.value)continue;
+      if(t&&!(s.name+" "+s.desc+" "+s.sub).toLowerCase().includes(t))continue;
+      rows.push(s);}
+    rows.sort((a,b)=>(a.cat===b.cat?a.name.localeCompare(b.name):a.cat.localeCompare(b.cat)));
+    for(const s of rows.slice(0,shown)){const has=s.installed();
+      const r=mk("div",{class:"lrow"});r.appendChild(tileEl(s.name,34));
       const tx=mk("span",{});tx.style.flex="1";tx.style.minWidth="0";
-      tx.appendChild(mk("div",{},s.name));tx.appendChild(mk("small",{class:"muted"},s.desc+" · "+host));r.appendChild(tx);
+      tx.appendChild(mk("div",{},s.name));tx.appendChild(mk("small",{class:"muted"},s.desc+(s.sub?" · "+s.sub:"")));r.appendChild(tx);
       const b=mk("button",{class:"btn"+(has?"":" primary")},has?"Open":"Install");
-      b.onclick=()=>{if(has)openWebApp(s.id);else{installWeb(s.id);draw();}};r.appendChild(b);
-      if(has){const rm=mk("button",{class:"btn danger"},"Remove");rm.onclick=()=>{uninstallWeb(s.id);draw();};r.appendChild(rm);}
+      b.onclick=()=>{if(has){s.kind==="cat"?openCatalogApp(s.id):openWebApp(s.id);}else s.install();};r.appendChild(b);
+      if(has){const rm=mk("button",{class:"btn danger"},"Remove");rm.onclick=()=>s.uninstall();r.appendChild(rm);}
       list.appendChild(r);}
-    if(!n)list.appendChild(mk("p",{class:"muted"},"No apps match."));}
-  q.oninput=draw;cs.onchange=draw;draw();
+    if(rows.length>shown){const more=mk("div",{class:"row"});const b=mk("button",{class:"btn"},"Show more");
+      b.onclick=()=>{shown+=PAGE;draw();};
+      more.append(b,mk("span",{class:"muted"},"Showing "+shown+" of "+rows.length+"."));list.appendChild(more);}
+    if(!rows.length)list.appendChild(mk("p",{class:"muted"},"No apps match."));}
+  function catStatus(){
+    if(catIndex.busy)return "Checking the bundled-tools index…";
+    if(catIndex.notes==="offline")return "Opened over file://, so the browser cannot read apps/index/. Browsing the full catalogue needs a static server; the "+CAT_BUILTIN.length+" built-in tools above always work and already-installed tools still open.";
+    if(catIndex.notes==="none")return "No apps/index/ catalogue found, so only the "+CAT_BUILTIN.length+" built-in tools are listed.";
+    return catalogList().length+" bundled tools · "+STORE.length+customWeb.length+" web apps. Installing a tool only adds a shortcut; its file loads when you first open it.";}
+  q.oninput=()=>{shown=PAGE;draw();};cs.onchange=()=>{shown=PAGE;draw();};
+  storeCatRedraw=draw;catDiscover();draw();
+  w.cleanups.push(()=>{if(storeCatRedraw===draw)storeCatRedraw=null;});
 }});
 /* ---------- L. local apps (HTML files / folders from this device) ---------- */
 let localApps=ls.get("local-apps",[]);
@@ -986,6 +1018,115 @@ function openLocalApp(id,forceNew){const a=getLocalApp(id);if(!a)return;
   return openApp("webapp",{id,key:"local:"+id,title:a.name,local:true,trusted:!!a.trusted});}
 function uninstallLocal(id){localApps=localApps.filter(a=>a.id!==id);saveLocalApps();memLocal.delete(id);idbPut("kv","localapp:"+id,null);
   const key="local:"+id;pinsTb=pinsTb.filter(k=>k!==key);pinsDesk=pinsDesk.filter(k=>k!==key);savePins();refreshApps();}
+/* ---------- M. catalogue apps (lazy single-file tools, installed from the Store) ---------- */
+/* Plugin contract (apps/CATALOG.md): each tool is a self-contained HTML file listed in
+   apps/manifest.json. Nothing about a tool loads until the user installs it in the Store and
+   opens it — then the shell creates one window holding one sandboxed iframe. Closing destroys it. */
+const CAT_BUILTIN=[
+  {id:"json-toolkit",name:"JSON Toolkit",cat:"Developer Tools",desc:"Format, minify and validate JSON.",icon:"terminal",entry:"apps/json-toolkit.html",w:760,h:520},
+  {id:"codec-toolkit",name:"Codec Toolkit",cat:"Developer Tools",desc:"Base64 and URL encode/decode.",icon:"terminal",entry:"apps/codec-toolkit.html",w:680,h:480},
+  {id:"jwt-decoder",name:"JWT Decoder",cat:"Developer Tools",desc:"Inspect token headers and claims.",icon:"terminal",entry:"apps/jwt-decoder.html",w:680,h:480},
+  {id:"hash-calculator",name:"Hash Calculator",cat:"Security & Forensics",desc:"MD5, SHA-1/256/512 for text and files.",icon:"settings",entry:"apps/hash-calculator.html",w:680,h:500},
+  {id:"qr-generator",name:"QR Generator",cat:"Media & Files",desc:"Generate QR codes offline.",icon:"wallpaper",entry:"apps/qr-generator.html",w:640,h:560},
+  {id:"color-studio",name:"Color Studio",cat:"Media & Files",desc:"Picker with HEX/RGB/HSL conversions.",icon:"wallpaper",entry:"apps/color-studio.html",w:640,h:520},
+  {id:"pomodoro",name:"Pomodoro Timer",cat:"Productivity",desc:"Focus timer with break cycles.",icon:"tasks",entry:"apps/pomodoro.html",w:460,h:520},
+  {id:"unit-converter",name:"Unit Converter",cat:"Data & Calculations",desc:"Length, mass, temperature, data units.",icon:"calc",entry:"apps/unit-converter.html",w:560,h:460},
+  {id:"csv-viewer",name:"CSV Viewer",cat:"Data & Calculations",desc:"Inspect, sort and filter CSV files locally.",icon:"files",entry:"apps/csv-viewer.html",w:860,h:560},
+  {id:"expense-tracker",name:"Expense Tracker",cat:"Everyday Utilities",desc:"Track spending with CSV export.",icon:"store",entry:"apps/expense-tracker.html",w:760,h:540},
+  {id:"regex-tester",name:"Regex Tester",cat:"Developer Tools",desc:"Test patterns with live matches and groups.",icon:"terminal",entry:"apps/regex-tester.html",w:760,h:520},
+  {id:"markdown-notes",name:"Markdown Notes",cat:"Knowledge & Writing",desc:"Write Markdown with live HTML preview.",icon:"notepad",entry:"apps/markdown-notes.html",w:860,h:560}];
+const catValid=a=>a&&typeof a.id==="string"&&typeof a.name==="string"&&typeof a.entry==="string";
+/* var (not let) so the Store app, defined earlier in this script, can reference these
+   safely when it renders after load. Never touch them during the initial pass. */
+var catalogList2=CAT_BUILTIN; /* merged with apps/index/<slug>.json when the Store discovers tools */
+/* Discovery is lazy and Store-triggered: a catalogue of hundreds of tools must never add
+   weight to boot. categories.json is a tiny table of contents; each category file is fetched
+   only when the Store opens. Under file:// both fetches are blocked, so CAT_BUILTIN is the list. */
+var catIndex={cats:null,notes:null,busy:false,done:false};
+var storeCatRedraw=null; /* set by the Store window so discovery results can repaint its list */
+var catalogInstalled=ls.get("catalog-installed",[]);
+/* Installed records carry full metadata (id/name/cat/desc/icon/entry/w/h), so an installed tool
+   opens from storage alone — no index fetch, no manifest, works from a double-clicked file://.
+   Older builds stored bare id strings. */
+catalogInstalled=(Array.isArray(catalogInstalled)?catalogInstalled:[]).map(x=>{
+  if(x&&typeof x==="object"&&typeof x.id==="string"&&typeof x.entry==="string")return x;
+  if(typeof x==="string")return Object.assign({},CAT_BUILTIN.find(a=>a.id===x)||
+    {id:x,name:x,cat:"Bundled tools",desc:"",entry:"apps/"+x+".html",w:640,h:480});
+  return null;}).filter(x=>x&&typeof x.id==="string");
+function catalogList(){return catalogList2;}
+function getCatalogApp(id){return catalogInstalled.find(a=>a.id===id)||catalogList2.find(a=>a.id===id)||null;}
+function isCatalogInstalled(id){return catalogInstalled.some(a=>a.id===id);}
+function saveCatalogInstalled(){ls.set("catalog-installed",catalogInstalled);idbPut("kv","catalog-installed",catalogInstalled);}
+function mergeCatalog(list){
+  const clean=list.filter(catValid);if(!clean.length)return false;
+  const byId=new Map(catalogList2.map(a=>[a.id,a]));let added=0;
+  for(const a of clean)if(!byId.has(a.id)){byId.set(a.id,a);added++;}
+  if(!added)return false;
+  catalogList2=[...byId.values()];refreshApps();catBroadcast();return true;}
+function catThemeQS(){return "n-theme="+encodeURIComponent(document.documentElement.dataset.theme||"dark")
+  +"&n-accent="+encodeURIComponent(getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()||"#4f8cff");}
+function catFrameUrl(a){try{return new URL(a.entry,document.baseURI).href;}catch{return a.entry;}}
+function catWinUrl(a){const base=catFrameUrl(a);const sep=base.includes("?")?"&":"?";return base+sep+catThemeQS();}
+function catBroadcast(){const theme=document.documentElement.dataset.theme||"dark";
+  const accent=getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()||"#4f8cff";
+  for(const w of wins.values()){const fr=$(".webframe",w.el);if(!fr||!w.catalog)continue;
+    try{fr.contentWindow&&fr.contentWindow.postMessage({source:"nucleus-host",type:"theme",theme,accent},"*");}catch{}}}
+addEventListener("message",e=>{if(e.data&&e.data.source==="nucleus-catalog"&&e.data.type==="ready"){
+  try{e.source.postMessage({source:"nucleus-host",type:"theme",theme:document.documentElement.dataset.theme||"dark",
+    accent:getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()||"#4f8cff"},"*");}catch{}}});
+/* Registration is metadata-only; the tool's HTML/JS/CSS is fetched by the iframe on first open. */
+function ensureCatalogRegistered(id){
+  if(!isCatalogInstalled(id)||APPS[id])return;
+  const a=getCatalogApp(id);if(!a)return;
+  reg(a.id,{title:a.name,icon:a.icon||"store",w:a.w||640,h:a.h||480,singleton:true,render(body,w){
+    w.catalog=true;w.el.classList.add("webwin");body.classList.add("flush");
+    const tbQ=$(".titlebar",w.el);const acts=mk("div",{class:"t-acts"});
+    const rl=mk("button",{class:"t-act",title:"Reload","aria-label":"Reload "+a.name},"⟳");
+    const ex=mk("button",{class:"t-act",title:"Open in a new browser tab","aria-label":"Open "+a.name+" in a new tab"},"↗");
+    acts.append(rl,ex);tbQ.appendChild(acts);
+    const fr=document.createElement("iframe");fr.className="webframe";
+    fr.setAttribute("sandbox","allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals");
+    fr.setAttribute("allow","clipboard-write; fullscreen");
+    fr.setAttribute("title",a.name);fr.referrerPolicy="no-referrer";body.appendChild(fr);
+    let closed=false;
+    w.onClose=()=>{closed=true;try{fr.src="about:blank";}catch{}};
+    rl.onclick=e=>{e.stopPropagation();fr.src=catWinUrl(a);};
+    ex.onclick=e=>{e.stopPropagation();window.open(catFrameUrl(a),"_blank","noopener");};
+    fr.src=catWinUrl(a);
+    catBroadcast();
+  }});
+}
+function registerInstalledCatalog(){for(const rec of catalogInstalled.slice())ensureCatalogRegistered(rec.id);}
+function installCatalog(id){const a=getCatalogApp(id);if(!a)return false;
+  if(!isCatalogInstalled(id)){catalogInstalled.push(Object.assign({},a));saveCatalogInstalled();}
+  ensureCatalogRegistered(id);refreshApps();return true;}
+function uninstallCatalog(id){catalogInstalled=catalogInstalled.filter(x=>x.id!==id);saveCatalogInstalled();
+  delete APPS[id];for(const w of [...wins.values()])if(w.app===id)closeWin(w.id);refreshApps();}
+function openCatalogApp(id,forceNew){const a=getCatalogApp(id);if(!a)return;
+  if(!forceNew){const ex=[...wins.values()].find(w=>w.key==="cat:"+id);if(ex){focusWin(ex.id);return ex.id;}}
+  return openApp(id,{key:"cat:"+id,title:a.name});}
+/* ---------- lazy catalogue discovery ----------
+   Never runs at boot. The Store fetches a table of contents, then one small file per category,
+   and merges the metadata into catalogList2. Installed tools are unaffected: they carry their
+   own record, so they open with no index at all (and work from file://). */
+function catJson(url){return fetch(url,{cache:"no-cache"})
+  .then(r=>r.ok?r.json():Promise.reject(new Error("HTTP "+r.status)));}
+function catDiscover(){
+  if(catIndex.busy||catIndex.done)return;
+  if(location.protocol!=="http:"&&location.protocol!=="https:"){
+    catIndex.done=true;catIndex.notes="offline";
+    if(storeCatRedraw)storeCatRedraw();return;}
+  catIndex.busy=true;if(storeCatRedraw)storeCatRedraw();
+  catJson("apps/index/categories.json").then(j=>{
+    const cats=Array.isArray(j)?j:(j&&Array.isArray(j.categories)?j.categories:null);
+    if(!cats)throw new Error("bad index");
+    catIndex.cats=cats.filter(c=>c&&typeof c.cat==="string"&&typeof c.file==="string");
+    return Promise.all(catIndex.cats.map(c=>catJson("apps/index/"+c.file)
+      .then(k=>{const l=k&&(k.apps||k);if(Array.isArray(l))mergeCatalog(l);})
+      .catch(()=>{/* a missing category file just leaves that group empty */})));
+  }).then(()=>{catIndex.done=true;catIndex.busy=false;catIndex.notes=null;})
+    .catch(()=>{catIndex.done=true;catIndex.busy=false;catIndex.notes="none";})
+    .finally(()=>{registerInstalledCatalog();if(storeCatRedraw)storeCatRedraw();});}
 /* ---------- K. icons, pins, context menu ---------- */
 function hue(str){let h=0;for(const c of String(str))h=(h*31+c.charCodeAt(0))%360;return h;}
 function tileEl(name,px){const t=mk("span",{class:"tile","aria-hidden":"true"},(String(name||"?").trim().charAt(0)||"?").toUpperCase());
@@ -999,9 +1140,11 @@ function appInfo(key){
   if(key.startsWith("web:")){const s=getWebApp(key.slice(4));return s&&installedWeb.includes(s.id)?{key,title:s.name,web:true,native:false}:null;}
   if(key.startsWith("folder:")){const f=getFolder(key.slice(7));return f?{key,title:f.name,folder:true,native:false}:null;}
   if(key.startsWith("local:")){const a=getLocalApp(key.slice(6));return a?{key,title:a.name,local:true,native:false}:null;}
+  if(key.startsWith("cat:")){const a=getCatalogApp(key.slice(4));return a?{key,title:a.name,catalog:true,native:false}:null;}
+  if(key.startsWith("cat:")){const a=getCatalogApp(key.slice(4));return a&&isCatalogInstalled(a.id)?{key,title:a.name,catalog:true,native:false}:null;}
   const d=APPS[key];if(!d||key==="webapp"||key==="power")return null;
   return{key,title:d.title,icon:d.icon,native:true};}
-function openKey(key,forceNew){const a=appInfo(key);if(!a)return;if(a.folder){openFolder(key.slice(7));return;}if(a.web)openWebApp(key.slice(4),forceNew);else if(a.local)openLocalApp(key.slice(6),forceNew);else openApp(key);}
+function openKey(key,forceNew){const a=appInfo(key);if(!a)return;if(a.folder){openFolder(key.slice(7));return;}if(a.web)openWebApp(key.slice(4),forceNew);else if(a.local)openLocalApp(key.slice(6),forceNew);else if(a.catalog)openCatalogApp(key.slice(4),forceNew);else openApp(key);}
 const DEF_TB=["browser","files","notepad","terminal","settings"];
 const DEF_DESK=["browser","notepad","terminal","files","settings","wallpaper","tasks"];
 function loadPins(k,d){const v=ls.get(k,d);return Array.isArray(v)?v.filter(x=>typeof x==="string"):d.slice();}
@@ -1061,7 +1204,7 @@ function openSearch(){hideCtx();toggleLauncher(false);if($("#gsearch"))return;
   function walk(n,p,q,acc){for(const[name,c]of Object.entries(n.children||{})){if(acc.length>20)return;const path=(p==="/"?"":p)+"/"+name;
     if(c.type==="dir")walk(c,path,q,acc);else if(name.toLowerCase().includes(q)||String(c.content||"").toLowerCase().includes(q))acc.push(path);}}
   function run(){const q=inp.value.toLowerCase().trim();items=[];sel=0;
-    if(q){const keys=[...Object.keys(APPS),...installedWeb.map(i=>"web:"+i),...localApps.map(a=>"local:"+a.id)];
+    if(q){const keys=[...Object.keys(APPS).filter(k=>!isCatalogInstalled(k)),...installedWeb.map(i=>"web:"+i),...localApps.map(a=>"local:"+a.id),...catalogInstalled.map(a=>"cat:"+a.id)];
       for(const k of keys){const a=appInfo(k);if(a&&a.title.toLowerCase().includes(q))items.push({g:"App",t:a.title,fn:()=>openKey(k)});}
       for(const n of notes)if((n.title+" "+n.content).toLowerCase().includes(q))items.push({g:"Note",t:n.title||"Untitled",fn:()=>openApp("notepad",{id:n.id})});
       const fp=[];walk(vfs,"/",q,fp);for(const p of fp)items.push({g:"File",t:p,fn:()=>openApp("files")});}
@@ -1256,15 +1399,17 @@ function drawerItem(k){const a=appInfo(k);
   attachCtx(b,()=>{const it=[{label:"Open",fn:()=>{openKey(k);toggleLauncher(false);}},"-",...pinItems(k)];
     if(a.web)it.push("-",{label:"Uninstall",fn:()=>{if(confirm("Uninstall "+a.title+"?"))uninstallWeb(k.slice(4));}});
     if(a.local)it.push("-",{label:"Remove",fn:()=>{if(confirm("Remove "+a.title+"?"))uninstallLocal(k.slice(6));}});
+    if(a.catalog)it.push("-",{label:"Uninstall tool",fn:()=>{if(confirm("Uninstall "+a.title+"?"))uninstallCatalog(k.slice(4));}});
     return it;});
   return b;}
 let w_launcherDraw=null;
 function buildLauncher(){const list=$("#launcherList");
   function draw(f){list.textContent="";const q=(f||"").toLowerCase().trim();let n=0;
     const byTitle=(a,b)=>appInfo(a).title.localeCompare(appInfo(b).title);
-    const native=Object.keys(APPS).filter(k=>appInfo(k)).sort(byTitle);
+    const native=Object.keys(APPS).filter(k=>appInfo(k)&&!isCatalogInstalled(k)).sort(byTitle);
     const web=installedWeb.map(id=>"web:"+id).filter(k=>appInfo(k)).sort(byTitle);
     const local=localApps.map(a=>"local:"+a.id).filter(k=>appInfo(k)).sort(byTitle);
+    const cat=catalogInstalled.filter(a=>getCatalogApp(a.id)).map(a=>"cat:"+a.id).sort(byTitle);
     function section(title,keys){
       const ks=keys.filter(k=>!q||appInfo(k).title.toLowerCase().includes(q)||k.toLowerCase().includes(q));
       if(!ks.length)return;
@@ -1272,8 +1417,8 @@ function buildLauncher(){const list=$("#launcherList");
       const g=mk("div",{class:"dr-grid",role:"listbox"});
       for(const k of ks){g.appendChild(drawerItem(k));n++;}
       list.appendChild(g);}
-    section("Apps",native);section("Web apps",web);section("Local apps",local);
-    if(!q&&!web.length)list.appendChild(mk("p",{class:"muted"},"No web apps installed yet."));
+    section("Apps",native);section("Web apps",web);section("Local apps",local);section("Installed tools",cat);
+    if(!q&&!(web.length||local.length||cat.length))list.appendChild(mk("p",{class:"muted"},"Nothing installed beyond the built-in apps — get more in the Store."));
     if(!n)list.appendChild(mk("p",{class:"muted"},"No apps match."));
     if(!q){const more=mk("button",{class:"btn dr-more"},"＋ Get more apps in Store");
       more.onclick=()=>{openApp("store");toggleLauncher(false);};list.appendChild(more);}}
@@ -1344,12 +1489,18 @@ function power(a){
 (async function boot(){
   // Render shell immediately from localStorage/memory defaults — never wait on async storage.
   applySettings();applyWallpaper();
+  registerInstalledCatalog();
   buildShortcuts();buildLauncher();wireShell();renderTasks();tickClock();
   // Then upgrade from IndexedDB in the background (timeouts inside guarantee no hang).
   try{
     await openDB();
     const savedNotes=await idbGet("notes","all");if(Array.isArray(savedNotes)&&savedNotes.length)notes=savedNotes;
     const savedVFS=await idbGet("vfs","tree");if(savedVFS&&savedVFS.type==="dir")vfs=savedVFS;
+    // Installed tool metadata outlives a localStorage quota failure; keep the richer copy.
+    const savedCat=await idbGet("kv","catalog-installed");
+    if(Array.isArray(savedCat)&&savedCat.length>catalogInstalled.length){
+      catalogInstalled=savedCat.filter(x=>x&&typeof x.id==="string"&&typeof x.entry==="string");
+      registerInstalledCatalog();}
     await restoreWallpaperBlob();
   }catch{/* storage unavailable — session continues on defaults */}
 })();

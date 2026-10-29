@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<!--
+  Nucleus catalogue app: JWT Decoder (id: jwt-decoder)
+  Self-contained single file: no network, no libraries, no build step.
+  Contract rules: apps/CATALOG.md
+  SECURITY: this tool only DECODES. It never verifies signatures and never executes token content.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JWT Decoder</title>
+<script type="application/nucleus+json">
+{"id":"jwt-decoder","name":"JWT Decoder","cat":"Developer Tools","desc":"Inspect token headers and claims.","icon":"terminal","w":680,"h":480}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --radius:10px; --font:13px;
+  --ok:#4ecb8f; --err:#ff7b7b; --warn:#e0a35c;
+  --accent-soft:rgba(79,140,255,.22); --code-bg:rgba(0,0,0,.22);
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+  --ok:#0f7a4d; --err:#b3261e; --warn:#8a5210;
+  --accent-soft:rgba(31,86,168,.16); --code-bg:rgba(255,255,255,.6);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px;display:flex;gap:10px;flex-wrap:wrap}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+textarea,input[type=text],input[type=number],select{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px;width:100%}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* ---------- app ---------- */
+.spacer{flex:1 1 12px}
+.hbtns{gap:6px}
+.hbtns .btn{padding:5px 9px}
+h2{margin:0 0 6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+h2 .btn{padding:2px 8px;font-size:11px;text-transform:none;letter-spacing:0}
+#token{min-height:84px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.5;word-break:break-all;resize:vertical}
+.cards{display:flex;gap:10px;flex-wrap:wrap}
+.card{flex:1 1 150px;min-width:140px;border:1px solid var(--border);border-radius:var(--radius);padding:9px 11px;background:var(--panel)}
+.card>b{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:3px}
+.card>span{font-size:15px;font-weight:700;word-break:break-all}
+.card small{display:block;color:var(--muted);font-weight:400;font-size:11px;margin-top:2px}
+.badge{padding:2px 9px;border-radius:999px;border:1px solid var(--border);background:var(--panel);font-size:11px;font-weight:700}
+.badge.ok{border-color:var(--ok);color:var(--ok)}
+.badge.err{border-color:var(--err);color:var(--err)}
+.badge.warn{border-color:var(--warn);color:var(--warn)}
+pre{margin:0;padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:var(--code-bg);
+  font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.5;
+  white-space:pre-wrap;word-break:break-word;max-height:210px;overflow:auto;user-select:text}
+.grid{display:flex;gap:12px;flex-wrap:wrap}
+.grid>section{flex:1 1 250px;min-width:230px}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{text-align:left;padding:5px 7px;border-bottom:1px solid var(--border);vertical-align:top;word-break:break-word}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+td.k{font-family:ui-monospace,Consolas,monospace;color:var(--accent);white-space:nowrap}
+td.v{font-family:ui-monospace,Consolas,monospace}
+td.n{color:var(--muted)}
+.notice{border:1px solid var(--warn);border-radius:8px;padding:8px 11px;color:var(--warn);font-size:12px;background:var(--panel)}
+.errline{color:var(--err);font-size:12px;font-family:ui-monospace,Consolas,monospace;word-break:break-word}
+label.chk{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer}
+label.chk input{width:auto;accent-color:var(--accent)}
+#sig{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--muted);word-break:break-all}
+#toast{position:fixed;left:50%;bottom:44px;transform:translateX(-50%);background:var(--accent);color:#fff;
+  padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;opacity:0;pointer-events:none}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <h1>JWT Decoder</h1>
+  <span class="muted">header · payload · claims — no signature check</span>
+  <span class="spacer"></span>
+  <div class="row hbtns">
+    <button class="btn" id="btn-sample" type="button">Sample token</button>
+    <button class="btn" id="btn-paste" type="button">Paste</button>
+    <button class="btn" id="btn-clear" type="button" aria-label="Clear the token field">Clear</button>
+  </div>
+</header>
+<main>
+  <section aria-labelledby="h-token">
+    <h2 id="h-token">Token
+      <label class="chk"><input type="checkbox" id="opt-autourl"> auto-un-URL-encode</label>
+      <label class="chk"><input type="checkbox" id="opt-pretty" checked> pretty JSON</label>
+    </h2>
+    <textarea id="token" spellcheck="false" aria-label="JSON Web Token to decode"
+      placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIIjoiMTIzNCJ9.signature — paste a header.payload.signature string"></textarea>
+    <div class="errline" id="error" role="status" aria-live="polite"></div>
+  </section>
+
+  <section class="cards" aria-label="Token summary" id="cards" hidden>
+    <div class="card"><b>Algorithm</b><span id="c-alg">—</span><small id="c-typ"></small></div>
+    <div class="card"><b>Expiry</b><span id="c-exp" class="badge">no exp claim</span><small id="c-exp-detail"></small></div>
+    <div class="card"><b>Payload size</b><span id="c-size">—</span><small id="c-parts"></small></div>
+  </section>
+
+  <div class="notice">Decoding only. The signature is <b>not verified</b> — anyone can forge a token's header and
+    payload, so never treat these fields as proof of authenticity, and never run anything taken from a token.</div>
+
+  <div class="grid">
+    <section aria-labelledby="h-header"><h2 id="h-header">Header <button class="btn" id="btn-copy-h" type="button">Copy</button></h2><pre id="hdr">{}</pre></section>
+    <section aria-labelledby="h-payload"><h2 id="h-payload">Payload <button class="btn" id="btn-copy-p" type="button">Copy</button></h2><pre id="pld">{}</pre></section>
+  </div>
+
+  <section aria-labelledby="h-claims">
+    <h2 id="h-claims">Registered &amp; custom claims
+      <span class="badge" id="claims-count">0</span></h2>
+    <div style="overflow:auto"><table><caption class="muted" style="text-align:left;font-size:11px">Timestamp claims are shown in your local time and UTC.</caption>
+      <thead><tr><th scope="col">Claim</th><th scope="col">Value</th><th scope="col">Meaning</th></tr></thead>
+      <tbody id="claims"></tbody>
+    </table></div>
+  </section>
+
+  <section aria-labelledby="h-sig">
+    <h2 id="h-sig">Signature segment (raw, unverified)</h2>
+    <div id="sig">—</div>
+  </section>
+</main>
+<footer>
+  <span class="muted" id="foot-note">Runs offline. Tokens are never stored or sent anywhere.</span>
+  <span class="muted">Ctrl+Alt+D decodes · Ctrl+Alt+C copies the payload.</span>
+</footer>
+<div id="toast" role="status" aria-live="polite"></div>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-jwt-decoder-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-jwt-decoder-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+/* ---------- Tool logic ---------- */
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var tokenEl=$("token"),errEl=$("error"),cards=$("cards"),
+      hdrEl=$("hdr"),pldEl=$("pld"),claimsBody=$("claims"),claimsCount=$("claims-count"),
+      sigEl=$("sig"),cAlg=$("c-alg"),cTyp=$("c-typ"),cExp=$("c-exp"),cExpDetail=$("c-exp-detail"),
+      cSize=$("c-size"),cParts=$("c-parts"),toast=$("toast"),
+      optPretty=$("opt-pretty"),optUrl=$("opt-autourl");
+  function el(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=text;return n;}
+  var toastTimer=null;
+  function showToast(m){toast.textContent=m;toast.classList.add("show");
+    if(toastTimer)clearTimeout(toastTimer);toastTimer=setTimeout(function(){toast.classList.remove("show");},1300);}
+
+  /* ---------- base64url helpers (padding + UTF-8 safe) ---------- */
+  function b64urlEncode(str){
+    var b=new TextEncoder().encode(str),bin="";
+    for(var i=0;i<b.length;i++)bin+=String.fromCharCode(b[i]);
+    return btoa(bin).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  }
+  function b64urlDecode(seg){
+    var t=String(seg).replace(/\s+/g,"");
+    if(!t)throw new Error("empty segment");
+    t=t.replace(/-/g,"+").replace(/_/g,"/");
+    while(t.length%4)t+="=";
+    var bad=t.replace(/[A-Za-z0-9+/=]/g,"");   /* keep only the offending characters */
+    if(bad)throw new Error("illegal Base64url character"+(bad.length>1?"s":"")+" "+Array.from(new Set(bad.split(""))).join(" "));
+    var bin;
+    try{bin=atob(t);}catch(e){throw new Error("segment is not valid Base64/Base64url");}
+    var u=new Uint8Array(bin.length);
+    for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);
+    try{return new TextDecoder("utf-8",{fatal:true}).decode(u);}
+    catch(e){throw new Error("segment decodes to bytes that are not valid UTF-8");}
+  }
+  function decodeJsonSegment(seg,what){
+    var text;
+    try{text=b64urlDecode(seg);}catch(e){throw new Error(what+": "+e.message);}
+    try{return JSON.parse(text);}
+    catch(e){
+      var pos=/position\s+(\d+)/i.exec(e.message);
+      throw new Error(what+" decoded to text that is not valid JSON"+(pos?" (offset "+pos[1]+")":""));
+    }
+  }
+
+  /* ---------- claim metadata ---------- */
+  var REG={iss:"Issuer — who minted the token",sub:"Subject — identity the token describes",
+    aud:"Audience — intended recipient(s)",exp:"Expiry time",nbf:"Not valid before",
+    iat:"Issued at",jti:"JWT id (unique token identifier)"};
+  var TIME_KEYS={iat:1,exp:1,nbf:1};
+
+  function fmtDate(ms){
+    var d=new Date(ms);
+    if(!isFinite(d.getTime()))return"";
+    return d.toLocaleString();
+  }
+  function fmtUtc(ms){
+    var d=new Date(ms);
+    if(!isFinite(d.getTime()))return"";
+    return d.toUTCString();
+  }
+  function humanDur(sec){
+    var a=Math.abs(sec),out=[];
+    var d=Math.floor(a/86400),h=Math.floor(a%86400/3600),m=Math.floor(a%3600/60),s=Math.floor(a%60);
+    if(d)out.push(d+"d "+h+"h");
+    else if(h)out.push(h+"h "+m+"m");
+    else if(m)out.push(m+"m "+s+"s");
+    else out.push(s+"s");
+    return out.join(" ");
+  }
+  function valueText(v){
+    if(v===null)return"null";
+    if(typeof v==="object"){try{return JSON.stringify(v);}catch(e){return"(unserialisable)"}}
+    if(typeof v==="string")return v;
+    return String(v);
+  }
+  function claimMeaning(k,v){
+    if(TIME_KEYS[k]&&typeof v==="number"){
+      var ms=v<1e11?v*1000:v; /* tolerate seconds vs milliseconds */
+      return fmtDate(ms)+" · "+fmtUtc(ms)+(v<1e11?"":" · (ms value)");
+    }
+    if(REG[k])return REG[k];
+    return"custom claim";
+  }
+
+  /* ---------- state used by the live countdown ---------- */
+  var expMs=null,lastParts=null;
+  function tickExpiry(){
+    if(expMs==null){
+      cExp.className="badge";cExp.textContent="no exp claim";
+      cExpDetail.textContent="the token does not state when it expires";
+      return;
+    }
+    var delta=(expMs-Date.now())/1000;
+    if(delta<=0){
+      cExp.className="badge err";
+      cExp.textContent="expired "+humanDur(delta)+" ago";
+    }else{
+      cExp.className="badge ok";
+      cExp.textContent="valid for "+humanDur(delta);
+    }
+    cExpDetail.textContent="exp = "+fmtDate(expMs)+" · "+fmtUtc(expMs);
+  }
+
+  /* ---------- main decode ---------- */
+  function normalize(raw){
+    var t=String(raw).trim().replace(/^"|"$/g,"").replace(/^Bearer\s+/i,"");
+    if(optUrl.checked||/%2e/i.test(t)&&/^[A-Za-z0-9_\-.%+=:]+$/.test(t)){
+      try{var u=decodeURIComponent(t);if(u.indexOf(".")>-1)t=u;}catch(e){/* leave as typed */}
+    }
+    return t;
+  }
+  function decode(){
+    expMs=null;
+    var raw=tokenEl.value;
+    claimsBody.textContent="";
+    if(!raw.trim()){
+      errEl.textContent="";cards.hidden=true;
+      hdrEl.textContent="{}";pldEl.textContent="{}";sigEl.textContent="—";
+      claimsCount.textContent="0";lastParts=null;return;
+    }
+    var t=normalize(raw);
+    var parts=t.split(".");
+    if(parts.length<2){
+      errEl.textContent="Not a JWT: expected 3 dot-separated segments (header.payload.signature), found "+parts.length+".";
+      cards.hidden=true;hdrEl.textContent="{}";pldEl.textContent="{}";sigEl.textContent="—";claimsCount.textContent="0";return;
+    }
+    var header,payload;
+    try{header=decodeJsonSegment(parts[0],"Header segment");}
+    catch(e){errEl.textContent=e.message;cards.hidden=true;return;}
+    try{payload=decodeJsonSegment(parts[1],"Payload segment");}
+    catch(e){errEl.textContent=e.message;cards.hidden=true;return;}
+    if(typeof header!=="object"||header===null||Array.isArray(header)){errEl.textContent="Header segment decoded to a "+(Array.isArray(header)?"array":"value")+", not a JSON object.";cards.hidden=true;return;}
+    if(typeof payload!=="object"||payload===null){errEl.textContent="Payload segment is not a JSON object.";cards.hidden=true;return;}
+
+    errEl.textContent="";
+    lastParts={header:header,payload:payload,parts:parts};
+    renderParts();
+  }
+  function pretty(v){return optPretty.checked?JSON.stringify(v,null,2):JSON.stringify(v);}
+  function renderParts(){
+    var p=lastParts;if(!p)return;
+    cards.hidden=false;
+    hdrEl.textContent=pretty(p.header);
+    pldEl.textContent=pretty(p.payload);
+    var alg=p.header.alg;
+    cAlg.textContent=alg==null?"(none)":String(alg);
+    var meta=[];
+    if(p.header.typ!=null)meta.push("typ "+p.header.typ);
+    if(p.header.cty!=null)meta.push("cty "+p.header.cty);
+    if(p.header.kid!=null)meta.push("kid "+p.header.kid);
+    if(p.header.jku!=null||p.header.jwk!=null)meta.push("has key reference");
+    cTyp.textContent=meta.length?meta.join(" · "):"no typ claim";
+    cSize.textContent=p.payload?JSON.stringify(p.payload).length.toLocaleString()+" chars":"0";
+    cParts.textContent=p.parts.length+" segments ("+(p.parts.length===3?"standard":"missing signature segment")+")";
+
+    /* signature segment: shown as text only */
+    if(p.parts.length>=3){
+      var sig=p.parts[2];
+      sigEl.textContent=sig?sig+"  ·  "+sig.length+" Base64url chars — mathematically unverified":"(empty signature segment)";
+    } else sigEl.textContent="(no signature segment present)";
+
+    /* claims table */
+    var keys=Object.keys(p.payload);
+    claimsCount.textContent=String(keys.length);
+    if(!keys.length){
+      var tr0=document.createElement("tr");
+      var td0=el("td","n","(no claims in the payload)");
+      td0.colSpan=3;
+      tr0.appendChild(td0);
+      claimsBody.appendChild(tr0);
+    }
+    keys.forEach(function(k){
+      var v=p.payload[k];
+      var tr=document.createElement("tr");
+      tr.appendChild(el("td","k",k));
+      tr.appendChild(el("td","v",valueText(v)));
+      tr.appendChild(el("td","n",claimMeaning(k,v)));
+      claimsBody.appendChild(tr);
+    });
+
+    /* expiry */
+    if(typeof p.payload.exp==="number"){expMs=p.payload.exp<1e11?p.payload.exp*1000:p.payload.exp;}
+    else expMs=null;
+    tickExpiry();
+  }
+
+  /* ---------- clipboard ---------- */
+  function copyText(text,label){
+    var done=false;
+    function settle(ok){if(done)return;done=true;showToast(ok?(label||"Copied"):"Copy blocked — select the text manually");}
+    if(!text){settle(false);return;}
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      try{navigator.clipboard.writeText(text).then(function(){settle(true);},legacy);return;}catch(e){}
+    }
+    legacy();
+    function legacy(){
+      var ta=el("textarea");ta.value=text;ta.setAttribute("readonly","");
+      ta.style.position="fixed";ta.style.top="0";ta.style.left="0";ta.style.opacity="0";
+      document.body.appendChild(ta);
+      var ok=false;try{ta.select();ok=document.execCommand("copy");}catch(e){ok=false;}
+      document.body.removeChild(ta);settle(ok);
+    }
+  }
+
+  /* ---------- sample token (built locally, never sent anywhere) ---------- */
+  function sample(){
+    var now=Math.floor(Date.now()/1000);
+    var header={alg:"HS256",typ:"JWT",kid:"demo-key-1"};
+    var payload={
+      iss:"nucleus.demo",sub:"user-42",aud:["web","catalogue"],
+      iat:now,nbf:now-30,exp:now+3600,jti:"1ef9-77a2-demo",
+      name:"Demo User",roles:["reader","tools"],premium:false
+    };
+    var sig=b64urlEncode("signature-bytes-not-verifiable-demo");
+    return b64urlEncode(JSON.stringify(header))+"."+b64urlEncode(JSON.stringify(payload))+"."+sig;
+  }
+
+  /* ---------- wiring ---------- */
+  var deb=null;
+  tokenEl.addEventListener("input",function(){if(deb)clearTimeout(deb);deb=setTimeout(decode,180);});
+  optPretty.addEventListener("change",function(){store.set("pretty",optPretty.checked);if(lastParts)renderParts();});
+  optUrl.addEventListener("change",function(){store.set("autourl",optUrl.checked);decode();});
+  $("btn-sample").addEventListener("click",function(){tokenEl.value=sample();decode();tokenEl.focus();});
+  $("btn-clear").addEventListener("click",function(){tokenEl.value="";decode();tokenEl.focus();});
+  $("btn-paste").addEventListener("click",function(){
+    if(navigator.clipboard&&navigator.clipboard.readText){
+      navigator.clipboard.readText().then(function(txt){tokenEl.value=txt||"";decode();showToast("Pasted");},
+        function(){showToast("Clipboard read blocked — use Ctrl+V");tokenEl.focus();});
+    } else {showToast("Clipboard read unsupported — use Ctrl+V");tokenEl.focus();}
+  });
+  $("btn-copy-h").addEventListener("click",function(){copyText(lastParts?pretty(lastParts.header):"","Header copied");});
+  $("btn-copy-p").addEventListener("click",function(){copyText(lastParts?pretty(lastParts.payload):"","Payload copied");});
+  addEventListener("keydown",function(e){
+    if(!(e.ctrlKey&&e.altKey))return;
+    var k=e.key.toLowerCase();
+    if(k==="d"){e.preventDefault();decode();showToast("Decoded");}
+    else if(k==="c"){e.preventDefault();$("btn-copy-p").click();}
+  });
+
+  setInterval(function(){if(expMs!=null)tickExpiry();},1000);
+
+  optPretty.checked=store.get("pretty",true)!==false;
+  optUrl.checked=store.get("autourl",true)!==false;
+  if(!store.persistent)$("foot-note").textContent="Session only, not persisted. Tokens are never stored or sent anywhere.";
+  decode();
+})();
+</script>
+</body>
+</html>

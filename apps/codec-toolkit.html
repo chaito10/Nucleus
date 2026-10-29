@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<!--
+  Nucleus catalogue app: Codec Toolkit (id: codec-toolkit)
+  Self-contained single file: no network, no libraries, no build step.
+  Contract rules: apps/CATALOG.md
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codec Toolkit</title>
+<script type="application/nucleus+json">
+{"id":"codec-toolkit","name":"Codec Toolkit","cat":"Developer Tools","desc":"Base64 and URL encode/decode.","icon":"terminal","w":680,"h":480}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --radius:10px; --font:13px;
+  --ok:#4ecb8f; --err:#ff7b7b; --accent-soft:rgba(79,140,255,.22); --out-bg:rgba(0,0,0,.18);
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+  --ok:#0f7a4d; --err:#b3261e; --accent-soft:rgba(31,86,168,.16); --out-bg:rgba(255,255,255,.55);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px;display:flex;gap:10px;flex-wrap:wrap}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+textarea,input[type=text],input[type=number],select{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px;width:100%}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* ---------- app ---------- */
+.spacer{flex:1 1 12px}
+.pill-btns{gap:6px}
+.pill-btns .btn{padding:5px 9px}
+h2{margin:0 0 6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+#search{max-width:280px}
+.groups{display:flex;flex-direction:column;gap:6px}
+.group{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.group>b{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;min-width:74px}
+.chip{background:var(--panel);border:1px solid var(--border);border-radius:999px;padding:4px 11px;cursor:pointer;font-size:12px}
+.chip:hover{background:var(--hover)}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.io{display:flex;gap:12px;flex-wrap:wrap;flex:1;min-height:0}
+.side{flex:1 1 260px;min-width:230px;display:flex;flex-direction:column;min-height:0}
+textarea{flex:1;min-height:120px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.5;resize:vertical}
+#out{background:var(--out-bg);cursor:text}
+#out:focus-visible{outline:2px solid var(--accent)}
+.note{font-size:12px;margin-top:2px;min-height:18px}
+.note.err{color:var(--err)}
+.note.ok{color:var(--ok)}
+#toast{position:fixed;left:50%;bottom:44px;transform:translateX(-50%);background:var(--accent);color:#fff;
+  padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;opacity:0;pointer-events:none}
+#toast.show{opacity:1}
+@media (max-width:560px){.side,textarea{min-height:110px}#search{max-width:none}.group>b{min-width:100%}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Codec Toolkit</h1>
+  <span class="muted">encode · decode, instantly</span>
+  <span class="spacer"></span>
+  <div class="row pill-btns">
+    <button class="btn" id="btn-swap" type="button" aria-label="Swap input and output, and use the opposite codec">Swap ⇄</button>
+    <button class="btn" id="btn-copy" type="button">Copy output</button>
+    <button class="btn" id="btn-clear" type="button" aria-label="Clear input and output">Clear</button>
+  </div>
+</header>
+<main>
+  <section aria-labelledby="h-picker">
+    <h2 id="h-picker">Codec</h2>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="search" placeholder="Search codecs (e.g. base64, hex, url)" aria-label="Search available codecs">
+      <button class="btn" id="btn-all" type="button">Show all</button>
+      <span class="muted" id="pick-count"></span>
+    </div>
+    <div class="groups" id="picker" role="group" aria-label="Codec picker"></div>
+  </section>
+  <section class="io">
+    <div class="side">
+      <h2>Input</h2>
+      <textarea id="in" spellcheck="false" aria-label="Input text" placeholder="Type or paste text to convert…"></textarea>
+      <div class="note muted" id="in-meta"></div>
+    </div>
+    <div class="side">
+      <h2>Output</h2>
+      <textarea id="out" readonly spellcheck="false" aria-label="Converted output" tabindex="0"></textarea>
+      <div class="note muted" id="out-note"></div>
+    </div>
+  </section>
+</main>
+<footer>
+  <span class="muted" id="foot-note">Runs offline. Data stays on this device.</span>
+  <span class="muted" id="codec-hint"></span>
+  <span class="muted">Ctrl+Alt+C copy · Ctrl+Alt+X swap · Ctrl+Alt+L clear.</span>
+</footer>
+<div id="toast" role="status" aria-live="polite"></div>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-codec-toolkit-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-codec-toolkit-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+/* ---------- Tool logic ---------- */
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var inEl=$("in"),outEl=$("out"),picker=$("picker"),search=$("search"),
+      inMeta=$("in-meta"),outNote=$("out-note"),codecHint=$("codec-hint"),
+      pickCount=$("pick-count"),toast=$("toast");
+  function el(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=text;return n;}
+  var toastTimer=null;
+  function showToast(msg){
+    toast.textContent=msg;toast.classList.add("show");
+    if(toastTimer)clearTimeout(toastTimer);
+    toastTimer=setTimeout(function(){toast.classList.remove("show");},1300);
+  }
+  function fail(msg){var e=new Error(msg);e.userMessage=msg;throw e;}
+
+  /* ---------- primitive conversions (UTF-8 safe) ---------- */
+  function bytesOf(str){return new TextEncoder().encode(str);}
+  function strFromBytes(bytes){
+    try{return new TextDecoder("utf-8",{fatal:true}).decode(bytes);}
+    catch(e){fail("The bytes are not valid UTF-8 text — try another codec or check the input.");}
+  }
+  function b64encode(s){
+    var b=bytesOf(s),bin="";
+    for(var i=0;i<b.length;i++)bin+=String.fromCharCode(b[i]);
+    return btoa(bin);
+  }
+  function b64decode(s){
+    var t=s.replace(/[\s\u200b]+/g,"");
+    if(!t)return"";
+    var url=/[-_]/.test(t);
+    if(url)t=t.replace(/-/g,"+").replace(/_/g,"/");
+    var bad=t.replace(/[A-Za-z0-9+/=]/g,"");   /* keep only the offending characters */
+    if(bad)fail("Invalid Base64 character"+(bad.length>1?"s":"")+": "+Array.from(new Set(bad.split(""))).join(" "));
+    var body=t.replace(/=+$/,"");
+    if(body.length%4===1)fail("Invalid Base64 length: "+body.length+" data character(s); 1 mod 4 is impossible.");
+    var pad=t.length%4;
+    if(pad&&pad!==2&&pad!==3)fail("Invalid Base64 padding: total length must be a multiple of 4 (found remainder "+pad+").");
+    var bin;
+    try{bin=atob(body);}catch(e){fail("Invalid Base64: the padding or character count does not decode.");}
+    var u=new Uint8Array(bin.length);
+    for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);
+    return strFromBytes(u);
+  }
+  function hexencode(s){
+    var b=bytesOf(s),out="";
+    for(var i=0;i<b.length;i++)out+=(b[i]<16?"0":"")+b[i].toString(16);
+    return out;
+  }
+  function hexdecode(s){
+    var t=s.replace(/[\s:,-]/g,"");
+    if(!t)return"";
+    if(!/^[0-9a-fA-F]+$/.test(t)){
+      var bad=Array.from(new Set(t.split("").filter(function(c){return !/[0-9a-fA-F]/.test(c);})));
+      fail("Invalid hex character"+(bad.length>1?"s":"")+": "+bad.join(" "));
+    }
+    if(t.length%2)fail("Invalid hex length: "+t.length+" digit(s); hex bytes need pairs.");
+    var u=new Uint8Array(t.length/2);
+    for(var i=0;i<u.length;i++)u[i]=parseInt(t.substr(i*2,2),16);
+    return strFromBytes(u);
+  }
+  function jsonEscape(s){return JSON.stringify(s);}
+  function jsonUnescape(s){
+    var t=s.trim();
+    if(!t)return"";
+    if(/^"/.test(t)||/^'/.test(t)){
+      try{var v=JSON.parse(t.replace(/^'/,"\"").replace(/'$/,"\""));
+        if(typeof v!=="string")fail("That is valid JSON but not a string.");
+        return v;
+      }catch(e){fail("Invalid JSON string: "+(e&&e.message?String(e.message):"could not parse"));}
+    }
+    try{return JSON.parse("\""+t+"\"");}
+    catch(e2){fail("Invalid escape sequence — check for a stray backslash or an unterminated \\u escape.");}
+  }
+
+  /* ---------- codec registry ---------- */
+  function badPercent(s){
+    for(var i=0;i<s.length;i++){
+      if(s.charAt(i)==="%"){
+        var pair=s.substr(i+1,2);
+        if(!/^[0-9a-fA-F]{2}$/.test(pair))return pair?("%"+pair):("% at the end");
+      }
+    }
+    return "%";
+  }
+  var CODECS=[
+    {id:"b64e",name:"Base64 encode",group:"Base64",kw:"b64 to64 ascii binary",inverse:"b64d",hint:"UTF-8 safe: text → Base64",fn:b64encode},
+    {id:"b64d",name:"Base64 decode",group:"Base64",kw:"b64 from64 base64url un-binary",inverse:"b64e",hint:"Accepts Base64 and Base64url; errors on bad length/chars",fn:b64decode},
+    {id:"uce",name:"URL component encode",group:"URL",kw:"encodeURIComponent query param space escape",inverse:"ucd",hint:"encodeURIComponent — escapes / ? & # too",fn:function(s){return encodeURIComponent(s);}},
+    {id:"ucd",name:"URL component decode",group:"URL",kw:"decodeURIComponent query param unescape",inverse:"uce",hint:"decodeURIComponent — needs valid %XX sequences",fn:function(s){
+      try{return decodeURIComponent(s);}
+      catch(e){fail("Malformed percent-encoding: a % must be followed by two hex digits (found "+badPercent(s)+").");}
+    }},
+    {id:"ufe",name:"URL whole encode",group:"URL",kw:"encodeURI scheme host path escape keep slashes",inverse:"ufd",hint:"encodeURI — keeps : / ? # & = readable",fn:function(s){return encodeURI(s);}},
+    {id:"ufd",name:"URL whole decode",group:"URL",kw:"decodeURI scheme host path unescape",inverse:"ufe",hint:"decodeURI — leaves structural characters alone",fn:function(s){try{return decodeURI(s);}catch(e){fail("Malformed percent-encoding: a % must be followed by two hex digits.");}}},
+    {id:"hxe",name:"Text → Hex",group:"Hex",kw:"hexadecimal bytes dump tohex",inverse:"hxd",hint:"UTF-8 bytes as lowercase hex pairs",fn:hexencode},
+    {id:"hxd",name:"Hex → Text",group:"Hex",kw:"hexadecimal fromhex unhex bytes",inverse:"hxe",hint:"Spaces, dashes and colons between pairs are ignored",fn:hexdecode},
+    {id:"jse",name:"JSON string escape",group:"JSON",kw:"stringify quote escape backslash newline",inverse:"jsd",hint:"Wraps in quotes and escapes \" \\ \\n \\u…",fn:jsonEscape},
+    {id:"jsd",name:"JSON string unescape",group:"JSON",kw:"parse unquote unescape remove quotes",inverse:"jse",hint:"Tolerates input with or without the outer quotes",fn:jsonUnescape}
+  ];
+  var byId={};CODECS.forEach(function(c){byId[c.id]=c;});
+  var current=store.get("codec","b64e");
+  if(!byId[current])current="b64e";
+
+  /* ---------- picker ---------- */
+  var chips={};
+  function renderPicker(){
+    picker.textContent="";
+    var q=search.value.trim().toLowerCase();
+    var groups=[];
+    CODECS.forEach(function(c){
+      var hay=(c.name+" "+c.group+" "+c.kw).toLowerCase();
+      if(q&&hay.indexOf(q)===-1)return;
+      var g=null;
+      for(var i=0;i<groups.length;i++)if(groups[i].name===c.group)g=groups[i];
+      if(!g){g={name:c.group,items:[]};groups.push(g);}
+      g.items.push(c);
+    });
+    if(!groups.length){
+      picker.appendChild(el("div","muted","No codec matches “"+q+"”. Clear the search to see all "+CODECS.length+"."));
+      pickCount.textContent="0 of "+CODECS.length+" shown";return;
+    }
+    groups.forEach(function(g){
+      var row=el("div","group");
+      row.appendChild(el("b",null,g.name));
+      g.items.forEach(function(c){
+        var b=el("button","chip",c.name);
+        b.type="button";b.id="chip-"+c.id;
+        b.setAttribute("aria-pressed",c.id===current?"true":"false");
+        b.title=c.hint;
+        b.addEventListener("click",function(){select(c.id);});
+        chips[c.id]=b;row.appendChild(b);
+      });
+      picker.appendChild(row);
+    });
+    var shown=0;groups.forEach(function(g){shown+=g.items.length;});
+    pickCount.textContent=shown+" of "+CODECS.length+" shown";
+  }
+  function select(id){
+    current=id;store.set("codec",id);
+    for(var k in chips)if(chips[k])chips[k].setAttribute("aria-pressed",k===id?"true":"false");
+    codecHint.textContent=byId[id].hint;
+    convert();
+  }
+
+  /* ---------- conversion ---------- */
+  function convert(){
+    var c=byId[current],text=inEl.value;
+    inMeta.textContent=text.length?text.length.toLocaleString()+" chars · "+bytesOf(text).length.toLocaleString()+" UTF-8 bytes":"";
+    if(!text){outEl.value="";setNote("","");return;}
+    try{
+      var out=c.fn(text);
+      outEl.value=out;
+      setNote("ok",c.name+" ok · "+out.length.toLocaleString()+" chars output");
+    }catch(e){
+      outEl.value="";
+      setNote("err",e.userMessage||(e&&e.message?String(e.message):"Conversion failed"));
+    }
+  }
+  function setNote(cls,msg){outNote.className="note "+(cls||"muted");outNote.textContent=msg;}
+
+  /* ---------- clipboard ---------- */
+  function copyText(text){
+    var done=false;
+    function settle(ok){if(done)return;done=true;showToast(ok?"Copied":"Copy blocked — select the output and copy manually");}
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      try{navigator.clipboard.writeText(text).then(function(){settle(true);},legacy);return;}catch(e){}
+    }
+    legacy();
+    function legacy(){
+      var ta=el("textarea");ta.value=text;ta.setAttribute("readonly","");
+      ta.style.position="fixed";ta.style.top="0";ta.style.left="0";ta.style.opacity="0";
+      document.body.appendChild(ta);
+      var ok=false;try{ta.select();ok=document.execCommand("copy");}catch(e){ok=false;}
+      document.body.removeChild(ta);settle(ok);
+    }
+  }
+
+  /* ---------- wiring ---------- */
+  var deb=null;
+  inEl.addEventListener("input",function(){
+    if(deb)clearTimeout(deb);
+    deb=setTimeout(function(){convert();store.set("input",inEl.value.slice(0,20000));},90);
+  });
+  search.addEventListener("input",renderPicker);
+  $("btn-all").addEventListener("click",function(){search.value="";renderPicker();showToast("All codecs");});
+  $("btn-copy").addEventListener("click",function(){
+    if(!outEl.value){showToast("Nothing to copy");return;}
+    copyText(outEl.value);
+  });
+  $("btn-clear").addEventListener("click",function(){inEl.value="";outEl.value="";store.set("input","");convert();inEl.focus();});
+  $("btn-swap").addEventListener("click",function(){
+    if(!outEl.value){showToast("Output is empty");return;}
+    inEl.value=outEl.value;
+    store.set("input",inEl.value.slice(0,20000));
+    var inv=byId[current].inverse;
+    select(inv||current);
+    convert();showToast("Swapped → "+byId[current].name);
+  });
+  addEventListener("keydown",function(e){
+    /* Alt-based so no browser shortcut is hijacked */
+    if(!(e.ctrlKey&&e.altKey))return;
+    var k=e.key.toLowerCase();
+    if(k==="c"){e.preventDefault();$("btn-copy").click();}
+    else if(k==="x"){e.preventDefault();$("btn-swap").click();}
+    else if(k==="l"){e.preventDefault();$("btn-clear").click();}
+  });
+
+  var saved=store.get("input","");
+  if(typeof saved==="string"&&saved.length<20000)inEl.value=saved;
+  if(!store.persistent)$("foot-note").textContent="Runs offline. Session only, not persisted.";
+  renderPicker();
+  codecHint.textContent=byId[current].hint;
+  convert();
+})();
+</script>
+</body>
+</html>

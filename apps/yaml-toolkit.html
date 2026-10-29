@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<!--
+  Nucleus catalogue app: YAML Toolkit.
+  Self-contained offline single file. Contract: apps/CATALOG.md.
+  Hand-written YAML-subset parser, JSON emitter and YAML serializer. No libraries, no network.
+  Every error carries the offending line number; unsupported constructs are rejected, never guessed.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YAML Toolkit</title>
+<script type="application/nucleus+json">
+{"id":"yaml-toolkit","name":"YAML Toolkit","cat":"Developer Tools",
+ "desc":"Convert YAML to JSON and back, with line-accurate errors.","icon":"terminal","w":820,"h":560}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --ok:#3ecf8e; --bad:#ef6e6e;
+  --radius:10px; --font:13px; --mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+  --ok:#1a8f5c; --bad:#b3403f;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+.panes{display:flex;gap:12px;flex:1;min-height:220px;flex-wrap:wrap}
+.pane{display:flex;flex-direction:column;gap:6px;flex:1 1 260px;min-width:0}
+.pane h2{font-size:12px;margin:0;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+textarea,input[type=text]{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px;width:100%}
+textarea{font-family:var(--mono);font-size:12px;line-height:1.45;resize:vertical;min-height:150px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+label{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+select{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px}
+#status{font-size:12px;min-height:16px;white-space:pre-wrap;word-break:break-word}
+#status.err{color:var(--bad)}
+#status.ok{color:var(--ok)}
+details{border:1px solid var(--border);border-radius:var(--radius);padding:8px 10px;background:var(--panel)}
+details summary{cursor:pointer;font-weight:600}
+.cols{display:flex;gap:16px;flex-wrap:wrap}
+.cols div{flex:1 1 220px;min-width:0}
+ul{margin:6px 0;padding-left:18px}
+li{margin:2px 0}
+code{font-family:var(--mono);font-size:11.5px;background:rgba(127,127,127,.18);padding:1px 4px;border-radius:4px}
+@media (max-width:600px){.panes{flex-direction:column}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1>YAML Toolkit</h1>
+  <span class="muted">YAML subset &harr; JSON, parsed locally</span>
+</header>
+<main>
+  <div class="row">
+    <label for="dir">Direction
+      <select id="dir">
+        <option value="y2j" selected>YAML &rarr; JSON</option>
+        <option value="j2y">JSON &rarr; YAML</option>
+      </select>
+    </label>
+    <label for="indent">Indent
+      <select id="indent">
+        <option value="2" selected>2 spaces</option>
+        <option value="4">4 spaces</option>
+        <option value="tab">tab</option>
+      </select>
+    </label>
+    <label for="multidoc"><input type="checkbox" id="multidoc"> JSON array &rarr; one <code>---</code> document per item</label>
+    <button class="btn" id="sample" type="button">Load sample</button>
+    <button class="btn" id="swap" type="button">Output &rarr; input</button>
+    <button class="btn" id="copy" type="button">Copy output</button>
+    <button class="btn" id="dl" type="button">Download output</button>
+  </div>
+  <div class="panes">
+    <div class="pane">
+      <h2 id="in-label">Input</h2>
+      <textarea id="input" spellcheck="false" aria-labelledby="in-label" placeholder="Paste YAML here"></textarea>
+    </div>
+    <div class="pane">
+      <h2 id="out-label">Output</h2>
+      <textarea id="output" readonly spellcheck="false" aria-labelledby="out-label"></textarea>
+    </div>
+  </div>
+  <div id="status" role="status" aria-live="polite" class="muted"></div>
+  <details id="subset">
+    <summary>Supported subset &amp; limitations</summary>
+    <div class="cols">
+      <div>
+        <strong>Supported</strong>
+        <ul>
+          <li>Block mappings and block sequences, nested by indentation</li>
+          <li>Flow collections written on one line: <code>[a, b]</code>, <code>{a: 1, b: c}</code></li>
+          <li>Plain, single-quoted and double-quoted scalars, with <code>\n</code>, <code>\t</code>, <code>\uXXXX</code> escapes</li>
+          <li>Integers (decimal, <code>0x</code>, <code>0o</code>, <code>0b</code>, legacy <code>0755</code>) and floats (<code>1e3</code>, <code>.5</code>, <code>.inf</code>, <code>.nan</code>)</li>
+          <li><code>true/false</code> (also <code>True</code>/<code>TRUE</code>), <code>null</code>, <code>~</code>, empty value</li>
+          <li>Underscore digit separators written between digits (<code>1_000</code> &rarr; 1000), resolved exactly as js-yaml does</li>
+          <li><code>#</code> comments, blank lines, <code>---</code> and <code>...</code> document markers</li>
+          <li>Compact nesting: <code>- key: value</code>, a sequence written directly under its key</li>
+        </ul>
+      </div>
+      <div>
+        <strong>Rejected with an explicit error (never guessed)</strong>
+        <ul>
+          <li>Anchors <code>&amp;a</code> / aliases <code>*a</code> / merge keys <code>&lt;&lt;:</code></li>
+          <li>Tags <code>!!str</code>, <code>!custom</code>, directives <code>%YAML</code>, complex keys <code>? key</code></li>
+          <li>Block scalars <code>|</code> and <code>&gt;</code></li>
+          <li>Multi-line plain scalars and multi-line flow collections</li>
+          <li>Tab indentation, duplicate keys, unterminated quotes, malformed indentation</li>
+        </ul>
+        <strong>Notes</strong>
+        <ul>
+          <li><code>yes</code>/<code>no</code>/<code>on</code>/<code>off</code> stay <em>strings</em> (YAML 1.2 core schema).</li>
+          <li>Dates and timestamps stay <em>strings</em>; they are not converted to Date objects.</li>
+          <li>Multiple documents convert to a JSON array; the status line says how many.</li>
+          <li>Nothing leaves this page: parsing and serialization run locally.</li>
+        </ul>
+      </div>
+    </div>
+  </details>
+</main>
+<footer><span class="muted" id="foot">Runs offline. Conversions are done locally and stay on this device.</span></footer>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+</script>
+<script>
+"use strict";
+/* ================= YAML subset engine (pure, unit-testable) =================
+   Supported: block maps/sequences, one-line flow collections, plain/single/double
+   scalars, core-schema ints/floats/bools/null, comments, --- / ... documents.
+   Anything else raises "Unsupported construct at line N".
+   ============================================================================ */
+function yamlError(msg,line){var e=new Error(msg);e.name="YamlError";e.line=line;return e;}
+function unsup(detail,line){return yamlError("Unsupported construct at line "+line+": "+detail+".",line);}
+
+/* --- comment stripping, quote aware (a quote only opens a token at a token start) --- */
+function stripComment(line){
+  var i=0,n=line.length,q=null,out=line;
+  function tokenStart(p){return p===0||/[\s[{,]/.test(line.charAt(p-1));}
+  while(i<n){
+    var c=line.charAt(i);
+    if(q){
+      if(q==="'"){
+        if(c==="'"){ if(line.charAt(i+1)==="'"){i+=2;continue;} q=null; }
+        i++;continue;
+      }
+      if(c==="\\"){i+=2;continue;}
+      if(c==='"')q=null;
+      i++;continue;
+    }
+    if((c==="'"||c==='"')&&tokenStart(i)){q=c;i++;continue;}
+    if(c==="#"&&(i===0||/\s/.test(line.charAt(i-1)))){out=line.slice(0,i);break;}
+    i++;
+  }
+  return {text:out,quote:q};
+}
+
+/* --- tokenize into significant lines {no, indent, text} --- */
+function tokenize(src){
+  var raw=String(src).replace(/\r\n?/g,"\n").split("\n"),lines=[];
+  for(var i=0;i<raw.length;i++){
+    var line=raw[i],no=i+1;
+    if(/^[ ]*\t/.test(line))
+      throw yamlError("Bad indentation at line "+no+": tab characters cannot be used to indent.",no);
+    if(/^[\s]*$/.test(line))continue;
+    var sc=stripComment(line);
+    var content=sc.text.replace(/[ \t]+$/,"");
+    if(/^[\s]*$/.test(content))continue;
+    if(sc.quote!==null)
+      throw yamlError("Unterminated quoted scalar at line "+no+": missing closing "+sc.quote+".",no);
+    var indent=/^ */.exec(content)[0].length;
+    lines.push({no:no,indent:indent,text:content.slice(indent)});
+  }
+  return lines;
+}
+
+/* --- quoted scalar scanners --- */
+function scanSingle(text,from){
+  var i=from+1,buf="";
+  while(i<text.length){
+    var c=text.charAt(i);
+    if(c==="'"){
+      if(text.charAt(i+1)==="'"){buf+="'";i+=2;continue;}
+      return {value:buf,end:i+1};
+    }
+    buf+=c;i++;
+  }
+  return {value:buf,end:i,unterminated:true};
+}
+var DQ_ESC={n:"\n",t:"\t",r:"\r",b:"\b",f:"\f",v:"\v","0":"\0","'":"'",'"':'"',"\\":"\\","/":"/",
+  e:"\u001b"," ":" ",N:"\u0085",_:"\u00a0",L:"\u2028",P:"\u2029"};
+function scanDouble(text,from){
+  var i=from+1,buf="";
+  while(i<text.length){
+    var c=text.charAt(i);
+    if(c==="\\"){
+      var d=text.charAt(i+1);
+      if(d===undefined)return {value:buf,end:i,unterminated:true};
+      if(d==="x"||d==="u"||d==="U"){
+        var len=d==="x"?2:d==="u"?4:8;
+        var hex=text.substr(i+2,len);
+        if(!new RegExp("^[0-9a-fA-F]{"+len+"}$").test(hex))
+          return {value:buf,end:i,bad:"invalid \\ "+d+" escape"};
+        buf+=String.fromCodePoint(parseInt(hex,16));i+=2+len;continue;
+      }
+      if(!Object.prototype.hasOwnProperty.call(DQ_ESC,d))
+        return {value:buf,end:i,bad:"unknown escape \\"+d};
+      buf+=DQ_ESC[d];i+=2;continue;
+    }
+    if(c==='"')return {value:buf,end:i+1};
+    buf+=c;i++;
+  }
+  return {value:buf,end:i,unterminated:true};
+}
+
+/* --- plain scalar resolution, matching js-yaml's default schema behaviour ---
+   Underscore digit separators are accepted when placed between digits (1_000 -> 1000)
+   and rejected otherwise (_5, 5_ stay strings), exactly like js-yaml. */
+function denumeric(s){
+  if(s.indexOf("_")<0)return s;
+  for(var i=0;i<s.length;i++){
+    if(s.charAt(i)==="_"){
+      if(i===0||i===s.length-1)return null;
+      var p=s.charAt(i-1),n=s.charAt(i+1);
+      if(p==="_"||n==="_")return null;
+      if(!/[0-9]/.test(p)||!/[0-9a-fA-F]/.test(n))return null;
+    }
+  }
+  return s.replace(/_/g,"");
+}
+var DATE_RE=/^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}([T ]|$)/;
+function resolvePlain(s,line){
+  if(s===""||s==="~"||s==="null"||s==="Null"||s==="NULL")return null;
+  if(s==="true"||s==="True"||s==="TRUE")return true;
+  if(s==="false"||s==="False"||s==="FALSE")return false;
+  /* documented divergence: timestamps stay strings, they are not turned into Date objects */
+  if(DATE_RE.test(s))return s;
+  var cand=denumeric(s);
+  if(cand===null)return s;
+  var neg=false,body=cand,sign=1;
+  if(body.charAt(0)==="-"){neg=true;sign=-1;body=body.slice(1);}
+  else if(body.charAt(0)==="+"){body=body.slice(1);}
+  if(/^0x[0-9a-fA-F]+$/.test(body))return sign*parseInt(body.slice(2),16);
+  if(/^0o[0-7]+$/.test(body))return sign*parseInt(body.slice(2),8);
+  if(/^0b[01]+$/.test(body))return sign*parseInt(body.slice(2),2);
+  if(/^[0-9]+$/.test(body))return sign*Number(body);
+  if(/^(?:[0-9]+\.[0-9]*|\.[0-9]+|[0-9]+[eE][-+]?[0-9]+|[0-9]+(?:\.[0-9]*)?[eE][-+]?[0-9]+)$/.test(body))return sign*parseFloat(body);
+  if(/^(?:\.inf|\.Inf|\.INF)$/.test(body))return neg?-Infinity:Infinity;
+  if(/^(?:\.nan|\.NaN|\.NAN)$/.test(body))return NaN;
+  return s;
+}
+
+/* --- flow collections, always written on one line --- */
+function FlowParse(text,line){this.t=text;this.i=0;this.line=line;}
+FlowParse.prototype.ws=function(){while(this.i<this.t.length&&this.t.charAt(this.i)===" ")this.i++;};
+FlowParse.prototype.peek=function(){return this.i<this.t.length?this.t.charAt(this.i):undefined;};
+FlowParse.prototype.stopAt=function(i){
+  var t=this.t;
+  while(i<t.length){
+    var c=t.charAt(i);
+    if(c===","||c==="]"||c==="}")break;
+    if(c===":"&&/[ ,\]}]/.test(t.charAt(i+1)||" "))break;
+    if(c==="'"||c==='"'){
+      var q=(c==="'")?scanSingle(t,i):scanDouble(t,i);
+      if(q.unterminated)throw yamlError("Unterminated quoted scalar at line "+this.line,this.line);
+      if(q.bad)throw yamlError("Invalid escape at line "+this.line+": "+q.bad+".",this.line);
+      i=q.end;continue;
+    }
+    i++;
+  }
+  return i;
+};
+FlowParse.prototype.quoted=function(c){
+  var q=(c==="'")?scanSingle(this.t,this.i):scanDouble(this.t,this.i);
+  if(q.unterminated)throw yamlError("Unterminated quoted scalar at line "+this.line,this.line);
+  if(q.bad)throw yamlError("Invalid escape at line "+this.line+": "+q.bad+".",this.line);
+  this.i=q.end;return q.value;
+};
+FlowParse.prototype.scalar=function(){
+  var c=this.peek();
+  if(c==="'")return this.quoted("'");
+  if(c==='"')return this.quoted('"');
+  if(c==="&")throw unsup("anchors (&name)",this.line);
+  if(c==="*")throw unsup("aliases (*name)",this.line);
+  if(c==="!")throw unsup("explicit tags (!!str, !custom)",this.line);
+  var start=this.i,end=this.stopAt(start);
+  this.i=end;
+  var raw=this.t.slice(start,end).replace(/[ ]+$/,"");
+  if(raw==="")throw yamlError("Empty flow scalar at line "+this.line+".",this.line);
+  return resolvePlain(raw,this.line);
+};
+FlowParse.prototype.keyToken=function(){
+  var c=this.peek();
+  if(c==="'")return this.quoted("'");
+  if(c==='"')return this.quoted('"');
+  if(c==="["||c==="{")throw unsup("complex keys (a flow collection used as a key)",this.line);
+  if(c==="&")throw unsup("anchors (&name)",this.line);
+  if(c==="*")throw unsup("aliases (*name)",this.line);
+  if(c==="!")throw unsup("explicit tags",this.line);
+  var start=this.i,end=this.stopAt(start);
+  this.i=end;
+  var raw=this.t.slice(start,end).replace(/[ ]+$/,"");
+  if(raw==="")throw yamlError("Empty key at line "+this.line+".",this.line);
+  return resolvePlain(raw,this.line);
+};
+FlowParse.prototype.sep=function(kind){
+  this.ws();
+  var c=this.peek();
+  if(c===undefined)throw yamlError("Unterminated flow "+kind+" at line "+this.line+".",this.line);
+  if(c===","){this.i++;return ",";}
+  if(c==="}"||c==="]"){this.i++;return c;}
+  throw yamlError("Malformed flow "+kind+" at line "+this.line+": unexpected '"+c+"'.",this.line);
+};
+FlowParse.prototype.seq=function(){
+  this.i++;
+  var out=[];
+  for(;;){
+    this.ws();
+    if(this.peek()==="]"){this.i++;return out;}
+    out.push(this.node());
+    var s=this.sep("sequence");
+    if(s==="]")return out;
+  }
+};
+FlowParse.prototype.map=function(){
+  this.i++;
+  var out={};
+  for(;;){
+    this.ws();
+    if(this.peek()==="}"){this.i++;return out;}
+    var k=String(this.keyToken());
+    this.ws();
+    if(this.peek()===":"){
+      this.i++;this.ws();
+      var c=this.peek();
+      out[k]=(c===","||c==="}"||c===undefined)?null:this.node();
+    }else out[k]=null;
+    var s=this.sep("mapping");
+    if(s==="}")return out;
+  }
+};
+FlowParse.prototype.node=function(){
+  this.ws();
+  var c=this.peek();
+  if(c==="[")return this.seq();
+  if(c==="{")return this.map();
+  if(c===undefined)throw yamlError("Empty flow node at line "+this.line+".",this.line);
+  return this.scalar();
+};
+function parseFlow(text,line){
+  var p=new FlowParse(text,line);
+  var v=p.node();
+  p.ws();
+  if(p.i<text.length)
+    throw yamlError("Unexpected content at line "+line+": '"+text.slice(p.i)+"' after a flow collection.",line);
+  return v;
+}
+
+/* --- line inspection --- */
+function isSeqLine(t){return t==="-"||/^-[ \t]/.test(t);}
+function blockScalarCheck(t,line){
+  if(/^[|>][-+]?[0-9]*[-+]?$/.test(t))throw unsup("block scalars ("+t.charAt(0)+")",line);
+}
+function startsUnsupported(t,line){
+  if(/^\?([ \t]|$)/.test(t))throw unsup("explicit complex keys (? key)",line);
+  if(/^%/.test(t))throw unsup("directives ("+t.split(" ")[0]+")",line);
+  if(/^&\S/.test(t))throw unsup("anchors (&name)",line);
+  if(/^\*\S/.test(t))throw unsup("aliases (*name)",line);
+  if(/^!(?!$)/.test(t))throw unsup("explicit tags (!!str, !custom)",line);
+}
+/* returns {key, rest, keyText} when the line starts a mapping entry, else null */
+function splitMapEntry(t,line){
+  var c=t.charAt(0);
+  if(c==="'"||c==='"'){
+    var p=new FlowParse(t,line);
+    var key=p.quoted(c);
+    p.ws();
+    if(t.charAt(p.i)===":"&&(p.i+1===t.length||t.charAt(p.i+1)===" "))
+      return {key:key,keyText:key,rest:t.slice(p.i+1).replace(/^ +/,"")};
+    return null;
+  }
+  if(c==="["||c==="{"){
+    var f=new FlowParse(t,line);
+    f.node();f.ws();
+    if(f.peek()===":")throw unsup("complex keys (a flow collection used as a key)",line);
+    return null;
+  }
+  var depth=0;
+  for(var k=0;k<t.length;k++){
+    var ch=t.charAt(k);
+    if(ch==="["||ch==="{"){depth++;continue;}
+    if(ch==="]"||ch==="}"){depth--;continue;}
+    if(ch==="'"||ch==='"'){
+      var q=(ch==="'")?scanSingle(t,k):scanDouble(t,k);
+      if(q.unterminated)throw yamlError("Unterminated quoted scalar at line "+line+": missing closing "+ch+".",line);
+      k=q.end-1;continue;
+    }
+    if(ch===":"&&depth===0&&(k+1===t.length||t.charAt(k+1)===" ")){
+      var raw=t.slice(0,k);
+      if(/^[ ]/.test(raw))throw yamlError("Unexpected space before a mapping key at line "+line+".",line);
+      var keyText=raw.replace(/[ ]+$/,"");
+      if(keyText==="")throw yamlError("Empty mapping key at line "+line+".",line);
+      if(/^<</.test(keyText))throw unsup("merge keys (<<)",line);
+      return {key:resolvePlain(keyText,line),keyText:keyText,rest:t.slice(k+1).replace(/^ +/,"")};
+    }
+  }
+  return null;
+}
+function inlineValue(t,line){
+  if(t==="")return null;
+  var c=t.charAt(0);
+  if(c==="&")throw unsup("anchors (&name)",line);
+  if(c==="*")throw unsup("aliases (*name)",line);
+  if(c==="!")throw unsup("explicit tags (!!str, !custom)",line);
+  if(c==="?")throw unsup("explicit complex keys (? key)",line);
+  if(c==="|"||c===">"){blockScalarCheck(t,line);throw unsup("block scalars ("+c+")",line);}
+  if(c==="["||c==="{")return parseFlow(t,line);
+  if(c==="'"){
+    var a=scanSingle(t,0);
+    if(a.unterminated)throw yamlError("Unterminated quoted scalar at line "+line+".",line);
+    if(a.end!==t.length)throw yamlError("Unexpected content at line "+line+": '"+t.slice(a.end)+"' after a quoted scalar.",line);
+    return a.value;
+  }
+  if(c==='"'){
+    var b=scanDouble(t,0);
+    if(b.unterminated)throw yamlError("Unterminated quoted scalar at line "+line+".",line);
+    if(b.bad)throw yamlError("Invalid escape at line "+line+": "+b.bad+".",line);
+    if(b.end!==t.length)throw yamlError("Unexpected content at line "+line+": '"+t.slice(b.end)+"' after a quoted scalar.",line);
+    return b.value;
+  }
+  return resolvePlain(t,line);
+}
+
+/* --- block parser over one document's significant lines --- */
+function Parser(lines){this.L=lines;this.i=0;}
+Parser.prototype.node=function(indent){
+  var L=this.L;
+  if(this.i>=L.length)return null;
+  var l=L[this.i];
+  if(l.indent<indent)return null;
+  if(l.indent>indent)
+    throw yamlError("Bad indentation at line "+l.no+": found "+l.indent+" spaces, expected "+indent+".",l.no);
+  startsUnsupported(l.text,l.no);
+  blockScalarCheck(l.text,l.no);
+  if(isSeqLine(l.text))return this.seq(l.indent);
+  if(splitMapEntry(l.text,l.no))return this.map(l.indent);
+  var start=this.i;
+  this.i++;
+  if(this.i<L.length){
+    var nx=L[this.i];
+    if(nx.indent>=indent)
+      throw unsup("multi-line plain scalars (a continuation line at "+nx.no+")",nx.no);
+  }
+  return inlineValue(l.text,l.no);
+};
+Parser.prototype.seq=function(indent){
+  var out=[],L=this.L;
+  while(this.i<L.length){
+    var l=L[this.i];
+    if(l.indent!==indent)break;
+    if(!isSeqLine(l.text)){
+      if(splitMapEntry(l.text,l.no))
+        throw yamlError("Bad indentation at line "+l.no+": a mapping entry cannot share the indent of a sequence item.",l.no);
+      break;
+    }
+    startsUnsupported(l.text,l.no);
+    var rest=l.text.slice(1),k=0;
+    while(k<rest.length&&rest.charAt(k)===" ")k++;
+    if(k===rest.length){
+      this.i++;
+      var nx=this.i<L.length?L[this.i]:null;
+      if(nx&&nx.indent>indent)out.push(this.node(nx.indent));
+      else out.push(null);
+      continue;
+    }
+    var vIndent=indent+1+k;
+    l.indent=vIndent;l.text=rest.slice(k);
+    out.push(this.node(vIndent));
+  }
+  return out;
+};
+Parser.prototype.map=function(indent){
+  var out={},seen=Object.create(null),L=this.L;
+  while(this.i<L.length){
+    var l=L[this.i];
+    if(l.indent<indent)break;
+    if(l.indent>indent)
+      throw yamlError("Bad indentation at line "+l.no+": found "+l.indent+" spaces where "+indent+" were expected for a mapping key.",l.no);
+    if(isSeqLine(l.text))break;
+    startsUnsupported(l.text,l.no);
+    var e=splitMapEntry(l.text,l.no);
+    if(!e)
+      throw unsup("multi-line plain scalars (a value line without 'key:' at "+l.no+")",l.no);
+    var key=String(e.key===null?"null":e.key);
+    if(Object.prototype.hasOwnProperty.call(seen,key))
+      throw yamlError("Duplicate key at line "+l.no+": '"+key+"' was already defined at line "+seen[key]+".",l.no);
+    seen[key]=l.no;
+    if(e.rest===""){
+      this.i++;
+      var nx=this.i<L.length?L[this.i]:null;
+      if(nx&&nx.indent>indent)out[key]=this.node(nx.indent);
+      else if(nx&&nx.indent===indent&&isSeqLine(nx.text))out[key]=this.seq(indent);
+      else out[key]=null;
+      continue;
+    }
+    out[key]=inlineValue(e.rest,l.no);
+    this.i++;
+    var after=this.i<L.length?L[this.i]:null;
+    if(after&&after.indent===indent&&!isSeqLine(after.text)&&!splitMapEntry(after.text,after.no))
+      throw unsup("multi-line plain scalars (a continuation line at "+after.no+")",after.no);
+  }
+  return out;
+};
+
+/* --- documents --- */
+function parseYaml(src){
+  var lines=tokenize(src);
+  if(lines.length===0)return {docs:[null],count:1};
+  var chunks=[],cur=[],closed=false,started=false;
+  for(var i=0;i<lines.length;i++){
+    var l=lines[i];
+    if(l.indent===0&&(l.text==="---"||l.text==="...")){
+      if(cur.length){chunks.push(cur);cur=[];}
+      else if(started&&l.text==="---")chunks.push([]);
+      if(l.text==="...")closed=true;
+      started=true;
+      continue;
+    }
+    if(closed)
+      throw yamlError("Unexpected content at line "+l.no+": after a '...' end marker the next document must open with '---'.",l.no);
+    cur.push(l);
+    started=true;
+  }
+  if(cur.length)chunks.push(cur);
+  if(chunks.length===0)chunks.push([]);
+  var docs=[];
+  for(var d=0;d<chunks.length;d++){
+    var chunk=chunks[d];
+    if(chunk.length===0){docs.push(null);continue;}
+    var p=new Parser(chunk);
+    var v=p.node(chunk[0].indent);
+    if(p.i<chunk.length)
+      throw yamlError("Unexpected content at line "+chunk[p.i].no+": '"+chunk[p.i].text+"' does not fit the surrounding block structure.",chunk[p.i].no);
+    docs.push(v);
+  }
+  return {docs:docs,count:docs.length};
+}
+
+/* --- JSON -> YAML serializer --- */
+function resolvePlainSafe(s){
+  try{return resolvePlain(s,0);}catch(e){return s;}
+}
+function needsQuote(s){
+  if(s==="")return true;
+  if(/^[ ]|[ ]$/.test(s))return true;
+  if(/[\n\t\r\b\f\v\0\u001b]/.test(s))return true;
+  if(/^[-?,:![\]{}&*!|>'"%@`]/.test(s))return true;
+  if(/^-[ \t]/.test(s))return true;
+  if(/: /.test(s)||s.charAt(s.length-1)===":")return true;
+  if(/ #/.test(s))return true;
+  if(/^(true|false|null|~|yes|no|on|off|y|n)$/i.test(s))return true;
+  if(DATE_RE.test(s))return true;                          /* would re-parse as a timestamp */
+  if(/^[-+]?\d+(:\d+)+$/.test(s))return true;              /* would re-parse as sexagesimal */
+  if(/^[-+]?(0[xbo][0-9a-f]+|0[0-7]+|[0-9]+([.eE+-][0-9.]*)?|\.inf|\.nan)$/i.test(s))return true;
+  if(resolvePlainSafe(s)!==s)return true;
+  return false;
+}
+function dq(s){
+  var out='"';
+  for(var i=0;i<s.length;i++){
+    var c=s.charAt(i),code=s.charCodeAt(i);
+    if(c==='"')out+='\\"';
+    else if(c==="\\")out+="\\\\";
+    else if(c==="\n")out+="\\n";
+    else if(c==="\t")out+="\\t";
+    else if(c==="\r")out+="\\r";
+    else if(c==="\b")out+="\\b";
+    else if(c==="\f")out+="\\f";
+    else if(code<32||code===127)out+="\\u"+("0000"+code.toString(16)).slice(-4);
+    else out+=c;
+  }
+  return out+'"';
+}
+function emitScalar(v){
+  if(v===null||v===undefined)return "null";
+  if(v===true)return "true";
+  if(v===false)return "false";
+  if(typeof v==="number"){
+    if(isNaN(v))return ".nan";
+    if(!isFinite(v))return v>0?".inf":"-.inf";
+    return JSON.stringify(v);
+  }
+  var s=String(v);
+  return needsQuote(s)?dq(s):s;
+}
+function isEmptyColl(v){
+  return v!==null&&typeof v==="object"&&(Array.isArray(v)?v.length===0:Object.keys(v).length===0);
+}
+function isColl(v){return v!==null&&typeof v==="object"&&!isEmptyColl(v);}
+function toYaml(value,opts){
+  opts=opts||{};
+  var step=opts.indent==="tab"?"\t":new Array(parseInt(opts.indent||2,10)+1).join(" ");
+  var out=[];
+  function writeNode(v,indent){
+    if(Array.isArray(v)){
+      if(v.length===0){out[out.length-1]+=" []";return;}
+      for(var j=0;j<v.length;j++){
+        var it=v[j];
+        if(isColl(it)){
+          var inner=[],save=out;
+          out=inner;writeNode(it,indent+step);out=save;
+          inner[0]=indent+"- "+inner[0].slice(indent.length+step.length);
+          Array.prototype.push.apply(out,inner);
+        }else out.push(indent+"- "+(isEmptyColl(it)?JSON.stringify(it):emitScalar(it)));
+      }
+      return;
+    }
+    if(v!==null&&typeof v==="object"){
+      var keys=Object.keys(v);
+      if(opts.sortKeys)keys.sort();
+      if(keys.length===0){out[out.length-1]+=" {}";return;}
+      for(var i=0;i<keys.length;i++){
+        var k=keys[i],kv=needsQuote(String(k))?dq(String(k)):String(k),child=v[k];
+        if(isColl(child)){out.push(indent+kv+":");writeNode(child,indent+step);}
+        else out.push(indent+kv+": "+(isEmptyColl(child)?JSON.stringify(child):emitScalar(child)));
+      }
+      return;
+    }
+    out.push(indent+emitScalar(v));
+  }
+  if(opts.multiDoc&&Array.isArray(value)){
+    if(value.length===0)return "[]\n";
+    for(var d=0;d<value.length;d++){
+      out.push("---");
+      var v=value[d];
+      if(v!==null&&typeof v==="object"&&!isEmptyColl(v)){writeNode(v,"");continue;}
+      out.push(isEmptyColl(v)?JSON.stringify(v):emitScalar(v));
+    }
+    return out.join("\n")+"\n";
+  }
+  if(value===null||isEmptyColl(value))return Array.isArray(value)?"[]\n":"{}\n";
+  writeNode(value,"");
+  return out.join("\n")+"\n";
+}
+
+/* --- top level conversions --- */
+function yamlToJson(src,opts){
+  var r=parseYaml(src);
+  var value=r.count===1?r.docs[0]:r.docs;
+  var indent=(opts&&opts.indent==="tab")?"\t":(opts&&opts.indent?parseInt(opts.indent,10):2);
+  var json=JSON.stringify(value,function(k,v){
+    if(typeof v==="number"){
+      if(isNaN(v))return ".nan";
+      if(!isFinite(v))return v>0?".inf":"-.inf";
+    }
+    return v;
+  },indent);
+  if(json===undefined)json="null";
+  return {json:json,docs:r.count,root:value};
+}
+function jsonToYaml(src,opts){
+  var trimmed=String(src).replace(/^\s+|\s+$/g,"");
+  if(trimmed==="")throw new Error("Empty input: nothing to convert.");
+  var value;
+  try{value=JSON.parse(trimmed);}
+  catch(e){
+    var m=/position (\d+)/.exec(e.message),line=1;
+    if(m)line=trimmed.slice(0,parseInt(m[1],10)).split("\n").length;
+    var err=new Error("Invalid JSON at line "+line+": "+e.message);err.line=line;throw err;
+  }
+  return {yaml:toYaml(value,opts)};
+}
+if(typeof module!=="undefined")module.exports={
+  parseYaml:parseYaml,resolvePlain:resolvePlain,toYaml:toYaml,needsQuote:needsQuote,
+  yamlToJson:yamlToJson,jsonToYaml:jsonToYaml,tokenize:tokenize,stripComment:stripComment,
+  parseFlow:parseFlow,splitMapEntry:splitMapEntry,inlineValue:inlineValue,scanDouble:scanDouble,
+  scanSingle:scanSingle,dq:dq
+};
+</script>
+<script>
+"use strict";
+/* ---------- UI ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-yaml-toolkit-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-yaml-toolkit-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+var SAMPLE_YAML=[
+  "# services described with the supported subset",
+  "name: nucleus",
+  "version: 2",
+  "enabled: true",
+  "affirmative: yes      # YAML 1.2 core keeps this a string",
+  "quoted: \"yes\"",
+  "ports: [8080, 0x1F, .5]",
+  "limits: {cpu: 1.5, host: none}",
+  "matrix:",
+  "  - id: a1",
+  "    tags: [x, y]",
+  "  - id: b2",
+  "    nested:",
+  "      depth: 3",
+  "      items:",
+  "        - one",
+  "        - \"two three\"",
+  "empty:",
+  "---",
+  "second: document"
+].join("\n");
+var SAMPLE_JSON='{"name":"nucleus","version":2,"enabled":true,"ports":[8080,8443],'
+  +"\"limits\":{\"cpu\":1.5,\"host\":null},\"matrix\":[{\"id\":\"a1\",\"tags\":[\"x\",\"y\"]}]}";
+var els={};
+function byId(i){return document.getElementById(i);}
+function setStatus(msg,cls){els.status.textContent=msg;els.status.className=cls||"muted";}
+function opts(){return {indent:els.indent.value,multiDoc:els.multidoc.checked};}
+function countValues(v){
+  var n=0;
+  (function walk(x){
+    if(x===null||typeof x!=="object"){n++;return;}
+    var ks=Array.isArray(x)?x:Object.keys(x);
+    if(Array.isArray(x)){for(var i=0;i<x.length;i++)walk(x[i]);return;}
+    if(ks.length===0)n++;
+    for(var j=0;j<ks.length;j++)walk(x[ks[j]]);
+  })(v);
+  return n;
+}
+function convert(){
+  var src=els.input.value;
+  if(src.replace(/^\s+|\s+$/g,"")===""){els.output.value="";setStatus("Nothing to convert yet: write on the left.","muted");return;}
+  try{
+    var o=opts();
+    if(els.dir.value==="y2j"){
+      var r=yamlToJson(src,o);
+      els.output.value=r.json;
+      setStatus((r.docs>1?"OK "+r.docs+" YAML documents \u2192 a JSON array of them.":"OK 1 document.")
+        +" "+countValues(r.root)+" scalar value(s).","ok");
+    }else{
+      var y=jsonToYaml(src,o);
+      els.output.value=y.yaml;
+      setStatus("OK YAML written"+(o.multiDoc?" as one document per array item":" as a single document")+".","ok");
+    }
+  }catch(e){
+    els.output.value="";
+    setStatus(e&&e.message?e.message:String(e),"err");
+  }
+}
+function copyOut(){
+  if(!els.output.value){setStatus("There is no output to copy.","err");return;}
+  if(!(navigator.clipboard&&navigator.clipboard.writeText)){
+    setStatus("Clipboard copy is not supported in this browser/context: select the output and copy manually.","err");
+    return;
+  }
+  navigator.clipboard.writeText(els.output.value).then(
+    function(){setStatus("Output copied to the clipboard.","ok");},
+    function(){setStatus("Clipboard write was blocked (needs focus and permission): select the output and copy manually.","err");});
+}
+function downloadOut(){
+  if(!els.output.value){setStatus("There is no output to download.","err");return;}
+  var ext=els.dir.value==="y2j"?"json":"yaml";
+  var blob=new Blob([els.output.value],{type:"text/plain;charset=utf-8"});
+  var url=URL.createObjectURL(blob),a=document.createElement("a");
+  a.href=url;a.download="nucleus-yaml-toolkit."+ext;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(url);},5000);
+  setStatus("Downloaded nucleus-yaml-toolkit."+ext+".","ok");
+}
+function save(){store.set("settings",{dir:els.dir.value,indent:els.indent.value,multiDoc:els.multidoc.checked});}
+function refreshLabels(){
+  var d=els.dir.value;
+  els.input.placeholder=d==="y2j"?"Paste YAML here":"Paste JSON here";
+  byId("in-label").textContent="Input ("+(d==="y2j"?"YAML":"JSON")+")";
+  byId("out-label").textContent="Output ("+(d==="y2j"?"JSON":"YAML")+")";
+  els.multidoc.disabled=(d!=="j2y");
+}
+function init(){
+  ["dir","indent","multidoc","input","output","status","sample","swap","copy","dl","foot"].forEach(function(k){els[k]=byId(k);});
+  var s=store.get("settings",null);
+  if(s){
+    if(s.dir)els.dir.value=s.dir;
+    if(s.indent)els.indent.value=s.indent;
+    if(typeof s.multiDoc==="boolean")els.multidoc.checked=s.multiDoc;
+  }
+  els.input.value=els.dir.value==="y2j"?SAMPLE_YAML:SAMPLE_JSON;
+  els.dir.addEventListener("change",function(){
+    els.input.value=els.dir.value==="y2j"?SAMPLE_YAML:SAMPLE_JSON;
+    refreshLabels();convert();save();
+  });
+  els.indent.addEventListener("change",function(){convert();save();});
+  els.multidoc.addEventListener("change",function(){convert();save();});
+  els.input.addEventListener("input",convert);
+  els.sample.addEventListener("click",function(){
+    els.input.value=els.dir.value==="y2j"?SAMPLE_YAML:SAMPLE_JSON;convert();
+  });
+  els.swap.addEventListener("click",function(){
+    if(!els.output.value){setStatus("There is no output to move.","err");return;}
+    els.input.value=els.output.value;
+    els.dir.value=els.dir.value==="y2j"?"j2y":"y2j";
+    refreshLabels();convert();save();
+  });
+  els.copy.addEventListener("click",copyOut);
+  els.dl.addEventListener("click",downloadOut);
+  if(!store.persistent)
+    els.foot.textContent=els.foot.textContent+" Preferences are session only, not persisted (embedded sandbox).";
+  refreshLabels();
+  convert();
+}
+init();
+</script>
+</body>
+</html>

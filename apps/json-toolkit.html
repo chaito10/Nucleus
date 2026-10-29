@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<!--
+  Nucleus catalogue app: JSON Toolkit (id: json-toolkit)
+  Self-contained single file: no network, no libraries, no build step.
+  Contract rules: apps/CATALOG.md
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JSON Toolkit</title>
+<script type="application/nucleus+json">
+{"id":"json-toolkit","name":"JSON Toolkit","cat":"Developer Tools","desc":"Format, minify and validate JSON.","icon":"terminal","w":760,"h":520}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --radius:10px; --font:13px;
+  --ok:#4ecb8f; --err:#ff7b7b; --bool:#e0a35c; --tree-bg:rgba(0,0,0,.18);
+  --accent-soft:rgba(79,140,255,.22);
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+  --ok:#0f7a4d; --err:#b3261e; --bool:#8a5210; --tree-bg:rgba(255,255,255,.55);
+  --accent-soft:rgba(31,86,168,.16);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;gap:14px;flex-wrap:wrap}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+textarea,input[type=text],input[type=number],select{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px;width:100%}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* ---------- app ---------- */
+.spacer{flex:1 1 12px}
+.tools{gap:6px}
+.tools .btn{padding:5px 9px}
+label.inline{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+label.inline select{width:auto;padding:4px 6px}
+.pane{flex:1 1 300px;min-width:260px;display:flex;flex-direction:column;min-height:0}
+.pane>h2{margin:0 0 6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+#input{flex:1 1 180px;min-height:170px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.5;resize:vertical}
+#input.dropping{border-color:var(--accent);background:var(--accent-soft)}
+.statuswrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px;min-height:22px}
+.badge{padding:2px 9px;border-radius:999px;border:1px solid var(--border);background:var(--panel);font-size:11px;font-weight:600;white-space:nowrap}
+.badge.ok{border-color:var(--ok);color:var(--ok)}
+.badge.err{border-color:var(--err);color:var(--err)}
+#errmsg{color:var(--err);font-size:12px;font-family:ui-monospace,Consolas,monospace;word-break:break-word;white-space:pre-line}
+#tree{flex:1 1 160px;min-height:150px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:var(--tree-bg);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.55}
+#tree ul{list-style:none;margin:0;padding-left:14px}
+#tree ul.root{padding-left:0}
+#tree li{margin:0}
+#tree details>ul{border-left:1px solid var(--border);margin-left:2px}
+#tree summary{cursor:pointer;display:flex;gap:6px;align-items:baseline;list-style:none;border-radius:5px;padding:0 2px}
+#tree summary::-webkit-details-marker{display:none}
+#tree summary:hover{background:var(--hover)}
+.caret{color:var(--muted);font-size:10px;flex:0 0 auto;transition:none}
+details:not([open])>.sum .caret{opacity:.65}
+.tkey{background:none;border:0;padding:0 3px;margin:0;color:var(--accent);font:inherit;cursor:pointer;border-radius:4px;text-decoration:underline dotted}
+.tkey:hover{background:var(--accent-soft)}
+.pv{color:var(--fg)}
+.pv.str{color:var(--ok)}
+.pv.bool{color:var(--bool)}
+.pv.null,.pv.undef{color:var(--muted)}
+.count{color:var(--muted)}
+.empty{color:var(--muted);font-style:italic}
+#toast{position:fixed;left:50%;bottom:46px;transform:translateX(-50%);background:var(--accent);color:#fff;
+  padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;opacity:0;pointer-events:none}
+#toast.show{opacity:1}
+#dropzone{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:var(--accent-soft);
+  border:2px dashed var(--accent);pointer-events:none;font-weight:600}
+#dropzone.on{display:flex}
+@media (max-width:560px){main{flex-direction:column}.pane{min-width:0;flex:1 1 auto}#input,#tree{min-height:130px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>JSON Toolkit</h1>
+  <span class="muted">format · minify · validate · inspect</span>
+  <span class="spacer"></span>
+  <div class="row tools">
+    <label class="inline">Indent
+      <select id="indent" aria-label="Indent width for formatting">
+        <option value="2">2 spaces</option>
+        <option value="4">4 spaces</option>
+      </select>
+    </label>
+    <button class="btn" id="btn-format" type="button">Format</button>
+    <button class="btn" id="btn-minify" type="button">Minify</button>
+    <button class="btn" id="btn-validate" type="button">Validate</button>
+    <button class="btn" id="btn-copy" type="button">Copy result</button>
+    <button class="btn" id="btn-download" type="button">Download</button>
+    <button class="btn" id="btn-sample" type="button">Sample</button>
+    <button class="btn" id="btn-clear" type="button" aria-label="Clear input">Clear</button>
+  </div>
+</header>
+<main>
+  <section class="pane" aria-labelledby="h-in">
+    <h2 id="h-in">Input <span class="muted" id="in-meta"></span></h2>
+    <textarea id="input" spellcheck="false" aria-label="JSON input"
+      placeholder="Paste JSON here, or drop a .json file anywhere in this window."></textarea>
+  </section>
+  <section class="pane" aria-labelledby="h-out">
+    <h2 id="h-out">Result <span class="muted" id="mode-label">live parse</span></h2>
+    <div class="statuswrap">
+      <span class="badge" id="status" role="status" aria-live="polite">empty</span>
+      <span id="errmsg"></span>
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <button class="btn" id="btn-expand" type="button">Expand all</button>
+      <button class="btn" id="btn-collapse" type="button">Collapse all</button>
+      <span class="muted">click a key to copy its path</span>
+    </div>
+    <div id="tree" tabindex="0" aria-label="Parsed JSON tree"><span class="empty">Nothing parsed yet.</span></div>
+  </section>
+</main>
+<footer>
+  <span class="muted" id="foot-note">Runs offline. Nothing leaves this device.</span>
+  <span class="muted">Ctrl+Alt+F format · Ctrl+Alt+M minify · Ctrl+Alt+V validate · Ctrl+Alt+S download.</span>
+</footer>
+<div id="dropzone">Drop a .json file to load it</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-json-toolkit-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-json-toolkit-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+/* ---------- Tool logic ---------- */
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var input=$("input"),tree=$("tree"),status=$("status"),errmsg=$("errmsg"),
+      inMeta=$("in-meta"),modeLabel=$("mode-label"),indentSel=$("indent"),
+      toast=$("toast"),dropzone=$("dropzone");
+  var MAX_STORE=40000;           /* keep persisted payload well under 100 KB */
+  var outputText="";             /* what Copy/Download use */
+  var mode="live";
+  var valid=false;               /* last parse result */
+  var toastTimer=null;
+
+  function el(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=text;return n;}
+  function showToast(msg){
+    toast.textContent=msg;toast.classList.add("show");
+    if(toastTimer)clearTimeout(toastTimer);
+    toastTimer=setTimeout(function(){toast.classList.remove("show");},1400);
+  }
+  function indentWidth(){return indentSel.value==="4"?4:2;}
+
+  /* ---------- clipboard with fallback (sandboxed iframes may block the async API) ---------- */
+  function copyText(text,after){
+    var done=false;
+    function settle(ok){if(done)return;done=true;showToast(ok?"Copied":"Copy blocked — select and copy manually");if(after)after(ok);}
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      try{navigator.clipboard.writeText(text).then(function(){settle(true);},function(){legacy();});return;}catch(e){}
+    }
+    legacy();
+    function legacy(){
+      var ta=el("textarea");ta.value=text;ta.setAttribute("readonly","");
+      ta.style.position="fixed";ta.style.top="0";ta.style.left="0";ta.style.opacity="0";
+      document.body.appendChild(ta);
+      var ok=false;
+      try{ta.select();ok=document.execCommand("copy");}catch(e){ok=false;}
+      document.body.removeChild(ta);settle(ok);
+    }
+  }
+
+  /* ---------- error position -> line/column ---------- */
+  function lineCol(text,pos){
+    var line=1,col=1;
+    for(var i=0;i<pos&&i<text.length;i++){
+      if(text.charCodeAt(i)===10){line++;col=1;}else col++;
+    }
+    return{line:line,col:col};
+  }
+  /* tiny JSON scanner: gives a position even when the engine message has none */
+  function scanJson(text){
+    var i=0,n=text.length;
+    function err(msg){return{msg:msg,pos:i};}
+    function ws(){while(i<n){var c=text.charAt(i);if(c===" "||c==="\t"||c==="\n"||c==="\r")i++;else break;}}
+    function str(){
+      i++;
+      while(i<n){
+        var c=text.charAt(i);
+        if(c==="\\"){i+=2;continue;}
+        if(c==="\""){i++;return null;}
+        if(c<" ")return err("unescaped control character inside a string");
+        i++;
+      }
+      return err("unterminated string");
+    }
+    function num(){
+      var st=i;
+      if(text.charAt(i)==="-")i++;
+      while(i<n&&text.charAt(i)>="0"&&text.charAt(i)<="9")i++;
+      if(text.charAt(i)==="."){i++;while(i<n&&text.charAt(i)>="0"&&text.charAt(i)<="9")i++;}
+      var e=text.charAt(i);
+      if(e==="e"||e==="E"){i++;var s=text.charAt(i);if(s==="+"||s==="-")i++;while(i<n&&text.charAt(i)>="0"&&text.charAt(i)<="9")i++;}
+      return i===st?err("invalid number"):null;
+    }
+    function val(){
+      ws();
+      if(i>=n)return err("unexpected end of input");
+      var c=text.charAt(i);
+      if(c==="{")return obj();
+      if(c==="[")return arr();
+      if(c==="\"")return str();
+      if(c==="-"||(c>="0"&&c<="9"))return num();
+      if(text.substr(i,4)==="true"){i+=4;return null;}
+      if(text.substr(i,5)==="false"){i+=5;return null;}
+      if(text.substr(i,4)==="null"){i+=4;return null;}
+      return err("unexpected character “"+c+"”");
+    }
+    function obj(){
+      i++;ws();
+      if(text.charAt(i)==="}"){i++;return null;}
+      for(;;){
+        ws();
+        if(text.charAt(i)!=="\"")return err("expected a quoted property name");
+        var r=str();if(r)return r;
+        ws();
+        if(text.charAt(i)!==":")return err("expected “:” after the property name");
+        i++;
+        r=val();if(r)return r;
+        ws();
+        var c=text.charAt(i);
+        if(c===","){i++;continue;}
+        if(c==="}"){i++;return null;}
+        return err("expected “,” or “}”");
+      }
+    }
+    function arr(){
+      i++;ws();
+      if(text.charAt(i)==="]"){i++;return null;}
+      for(;;){
+        var r=val();if(r)return r;
+        ws();
+        var c=text.charAt(i);
+        if(c===","){i++;continue;}
+        if(c==="]"){i++;return null;}
+        return err("expected “,” or “]”");
+      }
+    }
+    var e=val();
+    if(e)return e;
+    ws();
+    if(i<n)return err("unexpected character “"+text.charAt(i)+"” after the end of the document");
+    return null;
+  }
+  function describeError(err,text){
+    var msg=err&&err.message?String(err.message):"Invalid JSON";
+    var pos=null,detail=null;
+    var m=/position\s+(\d+)/i.exec(msg)||/character\s+(\d+)/i.exec(msg);
+    if(m)pos=parseInt(m[1],10);
+    var lm=/line\s+(\d+)/i.exec(msg);
+    if(pos===null&&lm){
+      var cm=/column\s+(\d+)/i.exec(msg);
+      pos=0;
+      var lines=text.split(/\r?\n/);
+      for(var k=0;k<Math.min(lines.length,+lm[1]-1);k++)pos+=lines[k].length+1;
+      pos+=cm?+cm[1]-1:0;
+    }
+    if(pos===null){
+      var sc=null;
+      try{sc=scanJson(text);}catch(e){sc=null;}
+      if(sc){pos=sc.pos;detail=sc.msg;}
+      else if(/end of (JSON )?input/i.test(msg)){pos=text.length;detail="unexpected end of input — document looks truncated";}
+    }
+    if(pos===null)return{at:"",text:msg};
+    var lc=lineCol(text,pos);
+    var src=text.split(/\r?\n/);
+    var snippet=src[lc.line-1]!==undefined?src[lc.line-1].slice(0,72):"";
+    return{at:"line "+lc.line+", column "+lc.col,
+      text:(detail?detail+": ":"")+msg+(snippet?"\n  "+snippet:"")};
+  }
+
+  /* ---------- stats ---------- */
+  function stats(value){
+    var keys=0,depth=0;
+    (function walk(v,d){
+      if(d>depth)depth=d;
+      if(Array.isArray(v)){for(var i=0;i<v.length;i++)walk(v[i],d+1);}
+      else if(v&&typeof v==="object"){
+        var ks=Object.keys(v);keys+=ks.length;
+        for(var j=0;j<ks.length;j++)walk(v[ks[j]],d+1);
+      }
+    })(value,1);
+    return{keys:keys,depth:depth};
+  }
+
+  /* ---------- tree viewer (textContent only, never innerHTML) ---------- */
+  function typeOf(v){
+    if(v===null)return"null";
+    if(Array.isArray(v))return"array";
+    return typeof v;
+  }
+  function primitiveText(v){
+    if(typeof v==="string")return JSON.stringify(v.length>160?v.slice(0,160)+"…":v);
+    if(typeof v==="number")return String(v);
+    if(typeof v==="boolean")return String(v);
+    return String(v);
+  }
+  function keyButton(name,path){
+    var b=el("button","tkey",name);
+    b.type="button";
+    b.setAttribute("aria-label","Copy path "+path);
+    b.title="Copy path: "+path;
+    b.addEventListener("click",function(ev){ev.preventDefault();ev.stopPropagation();copyText(path);});
+    return b;
+  }
+  function buildNode(name,value,path,open){
+    var li=el("li");
+    var t=typeOf(value);
+    if(t==="array"||t==="object"){
+      var entries=t==="array"?value.map(function(v,i){return[i,v];}):Object.keys(value).map(function(k){return[k,value[k]];});
+      var d=document.createElement("details");
+      if(open)d.open=true;
+      var s=document.createElement("summary");s.className="sum";
+      var caret=el("span","caret",open?"▾":"▸");
+      s.appendChild(caret);
+      s.appendChild(keyButton(name,path));
+      s.appendChild(el("span","count",t==="array"?"["+entries.length+"]":"{"+entries.length+"}"));
+      d.appendChild(s);
+      d.addEventListener("toggle",function(){caret.textContent=d.open?"▾":"▸";});
+      var ul=document.createElement("ul");
+      if(!entries.length)ul.appendChild(el("li","empty","(empty "+t+")"));
+      for(var i=0;i<entries.length;i++){
+        var k=entries[i][0],v=entries[i][1];
+        var childPath=t==="array"?path+"["+k+"]":path+"."+k;
+        ul.appendChild(buildNode(String(k),v,childPath,open&&i<12));
+      }
+      d.appendChild(ul);
+      li.appendChild(d);
+      return li;
+    }
+    if(name!=="")li.appendChild(keyButton(name,path));
+    if(name!=="")li.appendChild(el("span","count",": "));
+    var vs=el("span","pv "+t,primitiveText(value));
+    li.appendChild(vs);
+    return li;
+  }
+  function renderTree(value){
+    tree.textContent="";
+    var wrap=document.createElement("ul");wrap.className="root";
+    if(typeOf(value)==="object"||typeOf(value)==="array"){
+      var d=document.createElement("details");d.open=true;
+      var s=document.createElement("summary");s.className="sum";
+      var caret=el("span","caret","▾");
+      s.appendChild(caret);
+      s.appendChild(keyButton("$","$"));
+      var n=Array.isArray(value)?value.length:Object.keys(value).length;
+      s.appendChild(el("span","count",(Array.isArray(value)?"[":"{")+n+(Array.isArray(value)?"]":"}")));
+      d.appendChild(s);
+      d.addEventListener("toggle",function(){caret.textContent=d.open?"▾":"▸";});
+      var ul=document.createElement("ul");
+      var entries=Array.isArray(value)?value.map(function(v,i){return[i,v];}):Object.keys(value).map(function(k){return[k,value[k]];});
+      if(!entries.length)ul.appendChild(el("li","empty","(empty)"));
+      for(var i=0;i<entries.length;i++){
+        var k=entries[i][0],v=entries[i][1];
+        ul.appendChild(buildNode(String(k),v,Array.isArray(value)?"$["+k+"]":"$."+k,i<24));
+      }
+      d.appendChild(ul);
+      var li=document.createElement("li");li.appendChild(d);
+      wrap.appendChild(li);
+    } else {
+      wrap.appendChild(buildNode("",value,"$",true));
+    }
+    tree.appendChild(wrap);
+  }
+  function showEmptyTree(msg){tree.textContent="";tree.appendChild(el("span","empty",msg||"Nothing parsed yet."));}
+
+  /* ---------- core update ---------- */
+  function setStatus(cls,text){
+    status.className="badge "+cls;
+    status.textContent=text;
+  }
+  function update(){
+    var text=input.value;
+    inMeta.textContent=text.length?text.length.toLocaleString()+" chars":"empty";
+    if(!text.trim()){
+      valid=false;
+      setStatus("","empty");errmsg.textContent="";modeLabel.textContent="live parse";
+      outputText="";mode="live";showEmptyTree("Nothing parsed yet.");persist();return;
+    }
+    var value;
+    try{value=JSON.parse(text);}
+    catch(err){
+      var info=describeError(err,text);
+      valid=false;
+      setStatus("err","Invalid JSON");
+      errmsg.textContent=(info.at?info.at+" — ":"")+info.text;
+      showEmptyTree("Fix the input to see the tree.");
+      persist();return;
+    }
+    valid=true;
+    var s=stats(value);
+    setStatus("ok","Valid JSON · "+s.keys+" key"+(s.keys===1?"":"s")+" · depth "+s.depth);
+    errmsg.textContent="";
+    try{renderTree(value);}catch(e){showEmptyTree("Document too deep to display.");}
+    if(mode==="live"||mode==="format"){
+      outputText=JSON.stringify(value,null,indentWidth());
+      modeLabel.textContent="live parse · formatted ("+indentWidth()+" spaces)";
+    } else if(mode==="minify"){
+      outputText=JSON.stringify(value);
+      modeLabel.textContent="minified";
+    } else {
+      outputText=JSON.stringify(value,null,indentWidth());
+      modeLabel.textContent="validated — input untouched (result ready to copy/download)";
+    }
+    persist();
+  }
+  var debounced=null;
+  function onInput(){
+    mode="live";
+    if(debounced)clearTimeout(debounced);
+    debounced=setTimeout(update,180);
+  }
+  function persist(){
+    var text=input.value;
+    store.set("indent",indentSel.value);
+    if(text.length<=MAX_STORE)store.set("input",text);
+    if(!store.persistent){
+      $("foot-note").textContent="Runs offline. Session only, not persisted.";
+    }
+  }
+
+  /* ---------- actions ---------- */
+  $("btn-format").addEventListener("click",function(){
+    mode="format";runAction(function(v){return JSON.stringify(v,null,indentWidth());},"Formatted");
+  });
+  $("btn-minify").addEventListener("click",function(){
+    mode="minify";runAction(function(v){return JSON.stringify(v);},"Minified");
+  });
+  $("btn-validate").addEventListener("click",function(){
+    mode="validate";update();
+    showToast(valid?"Valid JSON":"Invalid JSON — see the message");
+  });
+  $("btn-copy").addEventListener("click",function(){
+    if(!outputText){showToast("Nothing to copy");return;}
+    copyText(outputText);
+  });
+  $("btn-download").addEventListener("click",function(){
+    if(!outputText){showToast("Nothing to download");return;}
+    try{
+      var blob=new Blob([outputText],{type:"application/json"});
+      var url=URL.createObjectURL(blob);
+      var a=el("a");a.href=url;a.download=mode==="minify"?"minified.json":"formatted.json";
+      document.body.appendChild(a);a.click();document.body.removeChild(a);
+      setTimeout(function(){URL.revokeObjectURL(url);},1500);
+      showToast("Download started");
+    }catch(e){showToast("Download not supported here");}
+  });
+  $("btn-clear").addEventListener("click",function(){
+    input.value="";mode="live";update();input.focus();
+  });
+  $("btn-sample").addEventListener("click",function(){
+    input.value=SAMPLE;mode="live";update();input.focus();
+  });
+  $("btn-expand").addEventListener("click",function(){setAllDetails(true);});
+  $("btn-collapse").addEventListener("click",function(){setAllDetails(false);});
+  indentSel.addEventListener("change",function(){mode="live";update();});
+  function setAllDetails(open){
+    var list=tree.querySelectorAll("details");
+    for(var i=0;i<list.length;i++)list[i].open=open;
+  }
+  function runAction(transform,label){
+    var text=input.value;
+    if(!text.trim()){showToast("Input is empty");return;}
+    var value;
+    try{value=JSON.parse(text);}
+    catch(err){update();showToast("Invalid JSON");return;}
+    outputText=transform(value);
+    input.value=outputText;
+    update();
+    showToast(label);
+  }
+
+  /* ---------- drag & drop a .json file ---------- */
+  var dragDepth=0;
+  addEventListener("dragenter",function(e){e.preventDefault();dragDepth++;dropzone.classList.add("on");});
+  addEventListener("dragover",function(e){e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect="copy";});
+  addEventListener("dragleave",function(e){e.preventDefault();dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)dropzone.classList.remove("on");});
+  addEventListener("drop",function(e){
+    e.preventDefault();dragDepth=0;dropzone.classList.remove("on");
+    var files=e.dataTransfer&&e.dataTransfer.files;
+    if(!files||!files.length)return;
+    var f=files[0];
+    if(f.size>3*1024*1024){showToast("File larger than 3 MB");return;}
+    var r=new FileReader();
+    r.onload=function(){
+      input.value=typeof r.result==="string"?r.result:"";
+      mode="live";update();showToast("Loaded "+(f.name||"file"));
+    };
+    r.onerror=function(){showToast("Could not read that file");};
+    r.readAsText(f);
+  });
+
+  /* ---------- keyboard (Alt-based: no browser shortcut is hijacked) ---------- */
+  addEventListener("keydown",function(e){
+    if(!(e.ctrlKey&&e.altKey))return;
+    var k=e.key.toLowerCase();
+    if(k==="f"){e.preventDefault();$("btn-format").click();}
+    else if(k==="m"){e.preventDefault();$("btn-minify").click();}
+    else if(k==="v"){e.preventDefault();$("btn-validate").click();}
+    else if(k==="c"){e.preventDefault();$("btn-copy").click();}
+    else if(k==="s"){e.preventDefault();$("btn-download").click();}
+  });
+
+  var SAMPLE='{'+
+    '"app": "Nucleus",'+
+    '"windows": ['+
+      '{"id": "files", "title": "Files", "x": 80, "y": 60, "pinned": true},'+
+      '{"id": "notes", "title": "Notepad", "x": 240, "y": 120, "pinned": false}'+
+    '],'+
+    '"theme": {"mode": "dark", "accent": "#4f8cff", "contrast": 1.0},'+
+    '"features": ["window-manager", "catalogue", "offline-first"],'+
+    '"limits": {"max-windows": 8, "beta": null, "experimental": false}'+
+  '}';
+
+  input.addEventListener("input",onInput);
+  var savedIndent=store.get("indent","2");
+  if(savedIndent==="4")indentSel.value="4";
+  var saved=store.get("input","");
+  if(typeof saved==="string"&&saved)input.value=saved;
+  if(!store.persistent)$("foot-note").textContent="Runs offline. Session only, not persisted.";
+  update();
+})();
+</script>
+</body>
+</html>

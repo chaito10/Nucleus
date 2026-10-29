@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Markdown Notes</title>
+<script type="application/nucleus+json">
+{"id":"markdown-notes","name":"Markdown Notes","cat":"Knowledge & Writing","desc":"Write Markdown with live HTML preview.","icon":"notepad","w":860,"h":560}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --radius:10px; --font:13px;
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:hidden;padding:0;display:flex}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.on{border-color:var(--accent);background:var(--accent);color:#fff}
+input[type=text]{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* ---------- app ---------- */
+.side{flex:0 0 210px;min-width:170px;border-right:1px solid var(--border);display:flex;flex-direction:column;padding:10px;gap:8px;overflow:auto;background:var(--panel)}
+.side h2{margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+#noteList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;flex:1;overflow:auto}
+#noteList li{border:1px solid transparent;border-radius:8px;padding:6px 8px;cursor:pointer;display:flex;flex-direction:column;gap:2px}
+#noteList li:hover{background:var(--hover)}
+#noteList li.sel{border-color:var(--border);background:var(--hover)}
+#noteList .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;gap:5px;align-items:center}
+#noteList .t .dirty{color:var(--accent);font-weight:700}
+#noteList .d{font-size:11px;color:var(--muted)}
+.side input.rename{width:100%}
+.work{flex:1;min-width:0;display:flex;flex-direction:column}
+.bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--border)}
+.bar .btn{padding:4px 9px;font-size:12px}
+.spacer{margin-left:auto}
+.panes{flex:1;min-height:0;display:flex}
+.pane{flex:1;min-width:0;overflow:auto}
+#editor{width:100%;height:100%;resize:none;border:none;border-radius:0;background:transparent;padding:14px;font:13px/1.55 ui-monospace,Consolas,"Cascadia Mono",monospace;tab-size:2}
+#editor:focus{outline:none;box-shadow:inset 0 0 0 2px var(--accent)}
+#preview{padding:14px 18px;border-left:1px solid var(--border);line-height:1.55;overflow-wrap:break-word}
+.mode-editor .pane.pv{display:none}
+.mode-preview .pane.ed{display:none}
+.mode-preview #preview{border-left:none}
+#preview h1,#preview h2{border-bottom:1px solid var(--border);padding-bottom:.15em}
+#preview pre{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px;overflow:auto}
+#preview code{font-family:ui-monospace,Consolas,monospace;background:var(--panel);border-radius:4px;padding:1px 4px}
+#preview pre code{background:none;padding:0;border:none}
+#preview blockquote{margin:.4em 0;padding:.2em .9em;border-left:3px solid var(--accent);background:var(--panel);border-radius:0 8px 8px 0}
+#preview table{border-collapse:collapse;margin:.5em 0}
+#preview th,#preview td{border:1px solid var(--border);padding:4px 9px}
+#preview th{background:var(--panel)}
+#preview hr{border:none;border-top:2px solid var(--border);margin:1em 0}
+#preview a{color:var(--accent)}
+#preview .imgph{opacity:.75;font-style:italic}
+#preview ul,#preview ol{padding-left:1.4em}
+.statusbar{display:flex;gap:12px;padding:6px 10px;border-top:1px solid var(--border);font-size:12px;color:var(--muted);flex-wrap:wrap}
+@media (max-width:640px){
+  .side{position:absolute;left:0;top:0;bottom:0;z-index:5;background:var(--bg);width:210px;display:none}
+  body.side-open .side{display:flex}
+  .mode-split .panes{flex-direction:column}
+  #preview{border-left:none;border-top:1px solid var(--border)}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Markdown Notes</h1>
+  <span class="muted" id="docTitle"></span>
+  <button class="btn" id="toggleSide" aria-label="Show or hide the notes list" style="display:none">Notes</button>
+</header>
+<main>
+  <aside class="side" aria-label="Notes list">
+    <h2>Notes</h2>
+    <ul id="noteList"></ul>
+    <button class="btn" id="newBtn">+ New note</button>
+  </aside>
+  <div class="work">
+    <div class="bar">
+      <button class="btn" data-mk="b" aria-label="Bold (wraps selection)" title="Bold"><strong>B</strong></button>
+      <button class="btn" data-mk="i" aria-label="Italic" title="Italic"><em>I</em></button>
+      <button class="btn" data-mk="s" aria-label="Strikethrough" title="Strikethrough"><del>S</del></button>
+      <button class="btn" data-mk="code" aria-label="Inline code" title="Inline code">&lt;/&gt;</button>
+      <button class="btn" data-mk="link" aria-label="Insert link" title="Insert link">&#128279;</button>
+      <button class="btn" data-mk="h" aria-label="Insert heading" title="Heading">H&#8595;</button>
+      <span class="spacer"></span>
+      <button class="btn" id="modeEditor" aria-label="Editor only view">Editor</button>
+      <button class="btn on" id="modeSplit" aria-label="Split view">Split</button>
+      <button class="btn" id="modePreview" aria-label="Preview only view">Preview</button>
+      <span class="spacer"></span>
+      <button class="btn" id="expMd" aria-label="Export current note as Markdown file">.md</button>
+      <button class="btn" id="expAll" aria-label="Export all notes as JSON">JSON all</button>
+      <button class="btn" id="renameBtn">Rename</button>
+      <button class="btn" id="delBtn" aria-label="Delete current note">Delete</button>
+    </div>
+    <div class="panes mode-split" id="panes">
+      <div class="pane ed"><textarea id="editor" aria-label="Markdown editor" spellcheck="true"
+placeholder="# Start writing…&#10;&#10;Markdown: **bold**, _italic_, `code`, [link](https://example.com), lists, tables, > quotes."></textarea></div>
+      <div class="pane pv" id="preview" aria-live="polite"></div>
+    </div>
+    <div class="statusbar">
+      <span id="stWords"></span><span id="stChars"></span><span id="stRead"></span>
+      <span class="spacer"></span><span id="stSaved"></span>
+    </div>
+  </div>
+</main>
+<footer><span class="muted" id="footNote">Runs offline. Notes stay on this device. Preview is escaped and allowlisted — remote images are never loaded.</span></footer>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-markdown-notes-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-markdown-notes-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+/*MD_START*/
+/* ---------- Markdown -> HTML converter ---------- */
+/* Safety model: escapeHtml() runs FIRST over the entire source, so raw input can never contain
+   <, >, & or " that the transform could emit as markup. The transform below then only introduces
+   an allowlist of tags (h1-6, p, br, hr, pre, code, a[href: http/https/mailto only], strong, em,
+   del, ul, ol, li, blockquote, table/thead/tbody/tr/th/td, span).
+   IMPORTANT: preview.innerHTML is assigned ONLY with the output of mdToHtml() (this function's
+   escaped+allowlisted result) — user input is never assigned to innerHTML anywhere else. */
+function escapeHtml(s){
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+function mdInline(t){
+  var codes=[];
+  t=t.replace(/`([^`\n]+)`/g,function(_,c){codes.push("<code>"+c+"</code>");return "\u0000"+(codes.length-1)+"\u0000";});
+  /* images: never emit a remote <img>; render a placeholder instead */
+  t=t.replace(/!\[([^\]]*)\]\(([^)\s]*)\)/g,function(_,alt){return '<span class="imgph">🖼 '+(alt||"image")+'</span>';});
+  /* links: only http/https/mailto hrefs (checked on escaped text; schemes contain no escaped chars) */
+  t=t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,function(_,txt,url){
+    if(/^(https?:|mailto:)/i.test(url))return '<a href="'+url+'" target="_blank" rel="noopener noreferrer">'+txt+"</a>";
+    return txt+" ("+url+")";
+  });
+  t=t.replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>");
+  t=t.replace(/__([^_]+)__/g,"<strong>$1</strong>");
+  t=t.replace(/~~([^~]+)~~/g,"<del>$1</del>");
+  t=t.replace(/(^|[^*\w])\*([^*\s][^*]*?)\*/g,"$1<em>$2</em>");
+  t=t.replace(/(^|[^_\w])_([^_\s][^_]*?)_(?![\w_])/g,"$1<em>$2</em>");
+  t=t.replace(/\u0000(\d+)\u0000/g,function(_,n){return codes[+n];});
+  return t;
+}
+var RE_ITEM=/^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+function mdBlocks(lines){
+  var out=[],i=0;
+  function isBlank(s){return /^\s*$/.test(s);}
+  while(i<lines.length){
+    var line=lines[i];
+    if(isBlank(line)){i++;continue;}
+    /* fenced code */
+    var f=line.match(/^```(\w*)\s*$/);
+    if(f){
+      var body=[],lang=f[1];i++;
+      while(i<lines.length&&!/^```\s*$/.test(lines[i])){body.push(lines[i]);i++;}
+      i++; /* skip close fence */
+      out.push('<pre><code'+(lang?' class="lang-'+lang+'"':"")+">"+body.join("\n")+"</code></pre>");
+      continue;
+    }
+    /* heading */
+    var h=line.match(/^(#{1,6})\s+(.*)$/);
+    if(h){out.push("<h"+h[1].length+">"+mdInline(h[2].replace(/\s+#+\s*$/,""))+"</h"+h[1].length+">");i++;continue;}
+    /* horizontal rule */
+    if(/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)){out.push("<hr>");i++;continue;}
+    /* blockquote (note: ">" is already escaped to &gt;) */
+    if(/^&gt;\s?/.test(line)){
+      var q=[];
+      while(i<lines.length&&/^&gt;\s?/.test(lines[i])){q.push(lines[i].replace(/^&gt;\s?/,""));i++;}
+      out.push("<blockquote>"+mdBlocks(q)+"</blockquote>");
+      continue;
+    }
+    /* table: header row with |, separator row of dashes/colons */
+    if(line.indexOf("|")!==-1&&i+1<lines.length&&/^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/.test(lines[i+1])){
+      function cells(s){
+        s=s.trim().replace(/^\|/,"").replace(/\|$/,"");
+        return s.split("|").map(function(c){return c.trim();});
+      }
+      var head=cells(line);i+=2;
+      var bodyRows=[];
+      while(i<lines.length&&lines[i].indexOf("|")!==-1&&!isBlank(lines[i])){bodyRows.push(cells(lines[i]));i++;}
+      var html="<table><thead><tr>";
+      head.forEach(function(c){html+="<th>"+mdInline(c)+"</th>";});
+      html+="</tr></thead><tbody>";
+      bodyRows.forEach(function(r){
+        html+="<tr>";
+        for(var c2=0;c2<head.length;c2++)html+="<td>"+mdInline(r[c2]==null?"":r[c2])+"</td>";
+        html+="</tr>";
+      });
+      html+="</tbody></table>";
+      out.push(html);
+      continue;
+    }
+    /* list (nested by indentation) */
+    if(RE_ITEM.test(line)){
+      var items=[];
+      while(i<lines.length){
+        var m=lines[i].match(RE_ITEM);
+        if(m){items.push({ind:m[1].replace(/\t/g,"  ").length,ord:/\d/.test(m[2]),text:m[3]});}
+        else if(items.length&&!isBlank(lines[i])&&/^\s{2,}\S/.test(lines[i])&&!/^&gt;/.test(lines[i])){
+          items[items.length-1].text+=" "+lines[i].trim(); /* continuation line */
+        } else break;
+        i++;
+      }
+      function renderLevel(start,ind){
+        var ord=items[start].ord,html="<"+(ord?"ol":"ul")+">",pos=start,lastLiEnd=-1;
+        while(pos<items.length&&items[pos].ind>=ind){
+          if(items[pos].ind>ind&&lastLiEnd!==-1){
+            var sub=renderLevel(pos,items[pos].ind);
+            /* embed nested list INSIDE the previous li (before its closing tag) */
+            html=html.slice(0,lastLiEnd-5)+" "+sub.html+"</li>";
+            lastLiEnd=-1;pos=sub.pos;continue;
+          }
+          var liTxt="<li>"+mdInline(items[pos].text)+"</li>";
+          lastLiEnd=html.length+liTxt.length;
+          html+=liTxt;
+          pos++;
+        }
+        return {html:html+"</"+(ord?"ol":"ul")+">",pos:pos};
+      }
+      var lvl0=items.length?items[0].ind:0;
+      out.push(renderLevel(0,lvl0).html);
+      continue;
+    }
+    /* paragraph: consecutive plain lines */
+    var para=[];
+    while(i<lines.length&&!isBlank(lines[i])&&!/^```/.test(lines[i])&&!/^(#{1,6})\s/.test(lines[i])&&
+          !RE_ITEM.test(lines[i])&&!/^&gt;\s?/.test(lines[i])&&!/^\s*([-*_])(\s*\1){2,}\s*$/.test(lines[i])){
+      para.push(lines[i]);i++;
+    }
+    out.push("<p>"+mdInline(para.join("<br>"))+"</p>");
+  }
+  return out.join("\n");
+}
+function mdToHtml(src){
+  var s=escapeHtml(src).replace(/\r\n?/g,"\n");
+  return mdBlocks(s.split("\n"));
+}
+/*MD_END*/
+/* ---------- App logic ---------- */
+(function(){
+  "use strict";
+  var $=function(id){return document.getElementById(id);};
+  var WELCOME="# Welcome to Markdown Notes\n\nWrite Markdown on the left, see rendered HTML on the right.\n\n## Supported\n\n- **bold**, _italic_, ~~strikethrough~~, `inline code`\n- Lists (nested too)\n  - like this\n- Blockquotes:\n\n> Ideas compound.\n\n- Tables:\n\n| Feature | Works |\n|---|---|\n| Links | [example](https://example.com) |\n| Images | replaced with a local placeholder — no remote loads |\n\n1. Ordered\n2. Lists\n\n```\nfenced code blocks\nstay literal: <script>alert(1)<\/script> is escaped\n```\n\nSafety: all text is escaped first, then rebuilt from an allowlist of tags. javascript: links are rejected.\n";
+  var notes=store.get("notes",null), activeId=store.get("active",null);
+  if(!Array.isArray(notes)||!notes.length){
+    notes=[{id:"welcome",title:"Welcome",body:WELCOME,updated:Date.now()}];
+    activeId="welcome";
+  }
+  notes=notes.filter(function(n){return n&&typeof n.id==="string"&&typeof n.body==="string";})
+             .map(function(n){return{id:n.id,title:typeof n.title==="string"?n.title:"Untitled",body:n.body,updated:+n.updated||Date.now()};});
+  if(!notes.find(function(n){return n.id===activeId;}))activeId=notes[0].id;
+  var dirty={},saveTimer=null; /* dirty[id]=true until store write lands */
+
+  function byId(id){return notes.find(function(n){return n.id===id;});}
+  function uid(){return "n"+Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+  function persist(){
+    /* keep store under budget: drop oldest bodies beyond 200 notes is overkill; cap note body size */
+    store.set("notes",notes);store.set("active",activeId);
+    Object.keys(dirty).forEach(function(k){delete dirty[k];});
+    renderList();setSaved("Saved "+timeStr(new Date()));
+  }
+  function scheduleSave(){
+    clearTimeout(saveTimer);
+    saveTimer=setTimeout(persist,700);
+  }
+  function timeStr(d){
+    return ("0"+d.getHours()).slice(-2)+":"+("0"+d.getMinutes()).slice(-2);
+  }
+  function dateStr(ts){
+    var d=new Date(ts);
+    var now=new Date();
+    return d.toDateString()===now.toDateString()?timeStr(d):(d.getMonth()+1)+"/"+d.getDate()+"/"+String(d.getFullYear()).slice(2);
+  }
+  function setSaved(t){$("stSaved").textContent=t;}
+
+  function renderList(){
+    var ul=$("noteList");ul.textContent="";
+    notes.slice().sort(function(a,b){return b.updated-a.updated;}).forEach(function(n){
+      var li=document.createElement("li");
+      if(n.id===activeId)li.classList.add("sel");
+      li.tabIndex=0;li.setAttribute("role","button");
+      li.setAttribute("aria-label","Open note "+n.title);
+      var t=document.createElement("div");t.className="t";
+      var nm=document.createElement("span");nm.textContent=n.title;nm.style.overflow="hidden";nm.style.textOverflow="ellipsis";
+      t.appendChild(nm);
+      if(dirty[n.id]){var d=document.createElement("span");d.className="dirty";d.textContent="●";d.title="Unsaved changes";t.appendChild(d);}
+      var d2=document.createElement("div");d2.className="d";d2.textContent=dateStr(n.updated);
+      li.appendChild(t);li.appendChild(d2);
+      li.addEventListener("click",function(){activate(n.id);});
+      li.addEventListener("keydown",function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();activate(n.id);}});
+      ul.appendChild(li);
+    });
+  }
+  function activate(id){
+    if(id===activeId)return;
+    flushIfDirty();
+    activeId=id;renderEditor();renderList();scheduleSave();
+  }
+  function flushIfDirty(){
+    var n=byId(activeId);
+    if(n&&n.body!==$("editor").value){n.body=$("editor").value;dirty[n.id]=true;}
+    persist();
+  }
+  function renderEditor(){
+    var n=byId(activeId);
+    $("editor").value=n?n.body:"";
+    $("docTitle").textContent=n?n.title:"";
+    renderPreview();renderStats();renderList();
+  }
+  function renderPreview(){
+    /* innerHTML assigned ONLY with mdToHtml output (fully escaped + allowlisted) — see converter above */
+    $("preview").innerHTML=mdToHtml($("editor").value||"");
+  }
+  function renderStats(){
+    var v=$("editor").value;
+    var words=(v.match(/[\p{L}\p{N}'’-]+/gu)||[]).length;
+    $("stWords").textContent=words+" words";
+    $("stChars").textContent=v.length+" chars";
+    $("stRead").textContent="~"+Math.max(1,Math.ceil(words/200))+" min read";
+  }
+  $("editor").addEventListener("input",function(){
+    var n=byId(activeId);if(!n)return;
+    n.body=this.value;n.updated=Date.now();
+    dirty[n.id]=true;
+    renderPreview();renderStats();renderList();
+    setSaved("Unsaved changes ●");
+    scheduleSave();
+  });
+  /* toolbar wrapping */
+  function wrapSel(before,after,placeholder){
+    var ed=$("editor"),s=ed.selectionStart,e=ed.selectionEnd;
+    var sel=ed.value.slice(s,e)||placeholder||"";
+    ed.setRangeText(before+sel+after,s,e,"select");
+    ed.selectionStart=s+before.length;ed.selectionEnd=s+before.length+sel.length;
+    ed.focus();
+    ed.dispatchEvent(new Event("input"));
+  }
+  var MK={
+    b:["**","**","bold text"],i:["_","_","italic text"],s:["~~","~~","struck text"],
+    code:["`","`","code"],link:["[","](https://example.com)","link text"]
+  };
+  document.querySelectorAll("[data-mk]").forEach(function(btn){
+    btn.addEventListener("click",function(){
+      var k=btn.dataset.mk;
+      if(k==="h"){
+        var ed=$("editor"),s=ed.selectionStart;
+        var lineStart=ed.value.lastIndexOf("\n",s-1)+1;
+        var m=ed.value.slice(lineStart).match(/^(#{1,6})\s/);
+        var ins=m?(m[1].length<3?"#":"##"):"#"; /* simple cycle: add or bump */
+        ed.setRangeText(ins+" ",lineStart,lineStart,"end");
+        ed.dispatchEvent(new Event("input"));ed.focus();return;
+      }
+      var cfg=MK[k];wrapSel(cfg[0],cfg[1],cfg[2]);
+    });
+  });
+  /* view modes */
+  function setMode(m){
+    $("panes").className="panes mode-"+m;
+    ["modeEditor","modeSplit","modePreview"].forEach(function(id){$(id).classList.toggle("on",id==="mode"+m.charAt(0).toUpperCase()+m.slice(1));});
+    store.set("mode",m);
+  }
+  $("modeEditor").addEventListener("click",function(){setMode("editor");});
+  $("modeSplit").addEventListener("click",function(){setMode("split");});
+  $("modePreview").addEventListener("click",function(){setMode("preview");});
+  /* notes ops */
+  $("newBtn").addEventListener("click",function(){
+    flushIfDirty();
+    var n={id:uid(),title:"Untitled "+(notes.length+1),body:"",updated:Date.now()};
+    notes.push(n);activeId=n.id;
+    renderEditor();persist();
+    $("editor").focus();
+  });
+  var renaming=false;
+  $("renameBtn").addEventListener("click",function(){
+    if(renaming)return;
+    var n=byId(activeId);if(!n)return;
+    renaming=true;
+    var inp=document.createElement("input");
+    inp.type="text";inp.className="rename";inp.value=n.title;inp.maxLength=60;
+    inp.setAttribute("aria-label","New note title");
+    var li=$("noteList").querySelector("li.sel");
+    (li||$("noteList")).appendChild(inp);
+    inp.focus();inp.select();
+    function done(){
+      renaming=false;
+      var v=inp.value.trim();
+      if(v){n.title=v.slice(0,60);n.updated=Date.now();persist();}
+      inp.remove();renderEditor();
+    }
+    inp.addEventListener("blur",done);
+    inp.addEventListener("keydown",function(e){
+      if(e.key==="Enter"){e.preventDefault();inp.blur();}
+      if(e.key==="Escape"){renaming=false;inp.removeEventListener("blur",done);inp.remove();}
+    });
+  });
+  var delArmed=false,delTimer=null;
+  $("delBtn").addEventListener("click",function(){
+    if(!delArmed){
+      delArmed=true;$("delBtn").textContent="Confirm?";
+      delTimer=setTimeout(function(){delArmed=false;$("delBtn").textContent="Delete";},3000);
+      return;
+    }
+    clearTimeout(delTimer);delArmed=false;$("delBtn").textContent="Delete";
+    notes=notes.filter(function(n){return n.id!==activeId;});
+    if(!notes.length)notes=[{id:uid(),title:"Untitled",body:"",updated:Date.now()}];
+    activeId=notes[0].id;
+    renderEditor();persist();
+  });
+  /* export */
+  function download(name,text,type){
+    var a=document.createElement("a"),blob=new Blob([text],{type:type});
+    a.href=URL.createObjectURL(blob);a.download=name;
+    document.body.appendChild(a);a.click();
+    setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1000);
+  }
+  function slug(t){return (t||"note").toLowerCase().replace(/[^\w-]+/g,"-").replace(/^-+|-+$/g,"").slice(0,40)||"note";}
+  $("expMd").addEventListener("click",function(){
+    var n=byId(activeId);if(!n)return;
+    download(slug(n.title)+".md",n.body,"text/markdown;charset=utf-8");
+  });
+  $("expAll").addEventListener("click",function(){
+    download("markdown-notes.json",JSON.stringify({schema:"markdown-notes/v1",notes:notes},null,2),"application/json");
+  });
+  /* keyboard: Ctrl/Cmd+S saves; Ctrl+B / Ctrl+I wrap when editor focused */
+  document.addEventListener("keydown",function(e){
+    var mod=e.ctrlKey||e.metaKey;
+    if(mod&&e.key.toLowerCase()==="s"){e.preventDefault();flushIfDirty();}
+    if(mod&&e.target===$("editor")){
+      if(e.key.toLowerCase()==="b"){e.preventDefault();wrapSel("**","**","bold text");}
+      if(e.key.toLowerCase()==="i"){e.preventDefault();wrapSel("_","_","italic text");}
+    }
+  });
+  /* small-screen sidebar toggle */
+  function checkNarrow(){
+    $("toggleSide").style.display=window.innerWidth<=640?"":"none";
+    document.body.classList.toggle("side-open",window.innerWidth<=640?document.body.classList.contains("side-open"):false);
+  }
+  $("toggleSide").addEventListener("click",function(){document.body.classList.toggle("side-open");});
+  addEventListener("resize",checkNarrow);checkNarrow();
+  if(!store.persistent){$("footNote").textContent="Session only — notes are NOT persisted inside Nucleus (sandboxed frame). Export before closing. Runs offline.";}
+  setMode(store.get("mode","split"));
+  renderEditor();
+})();
+</script>
+</body>
+</html>

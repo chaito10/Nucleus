@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<!--
+  Nucleus catalogue app: Color Studio.
+  Self-contained offline single file. Contract: apps/CATALOG.md.
+  Bidirectional HSL/RGB/HEX editing, 148 CSS named colors inline, WCAG contrast, harmonies.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Color Studio</title>
+<script type="application/nucleus+json">
+{"id":"color-studio","name":"Color Studio","cat":"Media & Files","desc":"Picker with HEX/RGB/HSL conversions.","icon":"wallpaper","w":640,"h":520}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --ok:#3ecf8e; --bad:#ef6e6e;
+  --radius:10px; --font:13px;
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+  --ok:#1a8f5c; --bad:#b3403f;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;gap:14px;flex-wrap:wrap}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+.col{flex:1 1 300px;min-width:260px;display:flex;flex-direction:column;gap:12px}
+input[type=text]{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px;width:100%}
+input[type=range]{flex:1;accent-color:var(--accent);min-width:90px}
+input[type=color]{width:52px;height:36px;border:1px solid var(--border);border-radius:8px;background:var(--panel);padding:2px;cursor:pointer}
+.slider-row{display:flex;gap:8px;align-items:center}
+.slider-row label{width:20px;font-weight:600}
+.slider-row output{width:44px;text-align:right;font-variant-numeric:tabular-nums}
+#swatch{border-radius:var(--radius);min-height:110px;display:flex;flex-direction:column;justify-content:center;
+  padding:14px;gap:4px;border:1px solid var(--border);transition:background-color .1s}
+#swatch b{font-size:16px}
+.badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.bdg{font-size:11px;border-radius:999px;padding:2px 8px;border:1px solid var(--border);background:var(--panel)}
+.bdg.pass{color:var(--ok);border-color:var(--ok)}
+.bdg.fail{color:var(--bad);border-color:var(--bad)}
+.grid-sw{display:flex;flex-wrap:wrap;gap:6px}
+.sw{width:34px;height:34px;border-radius:8px;border:1px solid var(--border);cursor:pointer;padding:0}
+.sw:hover{outline:2px solid var(--accent)}
+#names-list{display:flex;flex-wrap:wrap;gap:4px;max-height:132px;overflow:auto;padding:2px}
+.nameitem{display:flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:999px;
+  background:var(--panel);padding:2px 8px 2px 3px;cursor:pointer;font-size:11px;color:var(--fg)}
+.nameitem i{width:12px;height:12px;border-radius:3px;display:inline-block;border:1px solid var(--border)}
+h2{font-size:12px;margin:0 0 2px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+#hex-in{max-width:130px;font-family:ui-monospace,Consolas,monospace}
+#copybar{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+#copy-out{flex:1;min-width:170px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 8px;
+  font-family:ui-monospace,Consolas,monospace;font-size:12px;overflow:auto;white-space:nowrap}
+#msg{font-size:12px;min-height:15px;color:var(--muted)}
+@media (max-width:640px){main{flex-direction:column}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header><h1>Color Studio</h1><span class="muted">Convert &middot; check contrast &middot; build harmonies</span></header>
+<main>
+  <div class="col">
+    <section aria-label="Color pickers">
+      <h2>Pick</h2>
+      <div class="row">
+        <input type="color" id="native" aria-label="Native color picker">
+        <input type="text" id="hex-in" spellcheck="false" aria-label="HEX value, #rgb or #rrggbb" placeholder="#4f8cff">
+        <button class="btn" id="rand" type="button" aria-label="Generate random color">Random</button>
+      </div>
+      <label class="muted" for="name-search" style="margin-top:8px;display:block">CSS named colors (148)</label>
+      <div class="row" style="margin-top:4px">
+        <input type="text" id="name-search" placeholder="Search names or hex…" aria-label="Search CSS named colors">
+      </div>
+      <div id="names-list" role="listbox" aria-label="Matching CSS named colors"></div>
+      <div id="named-info" class="muted" style="margin-top:4px"></div>
+    </section>
+    <section aria-label="Channel sliders">
+      <h2>Channels</h2>
+      <div class="slider-row"><label for="h">H</label><input type="range" id="h" min="0" max="360" value="220"><output id="h-o">220</output></div>
+      <div class="slider-row"><label for="s">S</label><input type="range" id="s" min="0" max="100" value="100"><output id="s-o">100</output></div>
+      <div class="slider-row"><label for="l">L</label><input type="range" id="l" min="0" max="100" value="66"><output id="l-o">66</output></div>
+      <div class="slider-row" style="margin-top:6px"><label for="r">R</label><input type="range" id="r" min="0" max="255" value="79"><output id="r-o">79</output></div>
+      <div class="slider-row"><label for="g">G</label><input type="range" id="g" min="0" max="255" value="140"><output id="g-o">140</output></div>
+      <div class="slider-row"><label for="b">B</label><input type="range" id="b" min="0" max="255" value="255"><output id="b-o">255</output></div>
+    </section>
+  </div>
+  <div class="col">
+    <section aria-label="Live preview">
+      <h2>Preview &amp; accessibility</h2>
+      <div id="swatch">
+        <b id="sw-name">Sample text</b>
+        <span id="sw-sub">The quick brown fox — legibility check</span>
+      </div>
+      <div class="badges" id="contrast"></div>
+    </section>
+    <section aria-label="Harmonies">
+      <h2>Harmonies (click to use)</h2>
+      <div class="muted" style="font-size:11px">Complementary</div><div class="grid-sw" id="h-comp"></div>
+      <div class="muted" style="font-size:11px;margin-top:6px">Triadic</div><div class="grid-sw" id="h-triad"></div>
+      <div class="muted" style="font-size:11px;margin-top:6px">Analogous</div><div class="grid-sw" id="h-analog"></div>
+      <div class="muted" style="font-size:11px;margin-top:6px">Split-complementary</div><div class="grid-sw" id="h-split"></div>
+    </section>
+    <section aria-label="Recent colors">
+      <h2>Recent <button class="btn" id="clear-rec" type="button" style="font-size:11px;padding:2px 8px;margin-left:6px">Clear</button></h2>
+      <div class="grid-sw" id="recent"><span class="muted">No colors yet.</span></div>
+    </section>
+    <section aria-label="Copy color">
+      <h2>Copy as</h2>
+      <div id="copybar">
+        <output id="copy-out"></output>
+        <button class="btn" data-fmt="hex" type="button">HEX</button>
+        <button class="btn" data-fmt="rgb" type="button">RGB</button>
+        <button class="btn" data-fmt="hsl" type="button">HSL</button>
+        <button class="btn" data-fmt="var" type="button">CSS var</button>
+        <button class="btn" id="copy-go" type="button" aria-label="Copy the selected format to clipboard">Copy</button>
+      </div>
+      <div id="msg" aria-live="polite"></div>
+    </section>
+  </div>
+</main>
+<footer><span class="muted" id="foot">Runs offline. 148 CSS named colors bundled inline. Data stays on this device.</span></footer>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-color-studio-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-color-studio-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+/* ---------- CSS named colors: all 148 keywords (incl. grey-spelling aliases) ---------- */
+var NAMES={"AliceBlue":"#f0f8ff","AntiqueWhite":"#faebd7","Aqua":"#00ffff","Aquamarine":"#7fffd4","Azure":"#f0ffff",
+"Beige":"#f5f5dc","Bisque":"#ffe4c4","Black":"#000000","BlanchedAlmond":"#ffebcd","Blue":"#0000ff",
+"BlueViolet":"#8a2be2","Brown":"#a52a2a","BurlyWood":"#deb887","CadetBlue":"#5f9ea0","Chartreuse":"#7fff00",
+"Chocolate":"#d2691e","Coral":"#ff7f50","CornflowerBlue":"#6495ed","Cornsilk":"#fff8dc","Crimson":"#dc143c",
+"Cyan":"#00ffff","DarkBlue":"#00008b","DarkCyan":"#008b8b","DarkGoldenrod":"#b8860b","DarkGray":"#a9a9a9",
+"DarkGrey":"#a9a9a9","DarkGreen":"#006400","DarkKhaki":"#bdb76b","DarkMagenta":"#8b008b","DarkOliveGreen":"#556b2f",
+"DarkOrange":"#ff8c00","DarkOrchid":"#9932cc","DarkRed":"#8b0000","DarkSalmon":"#e9967a","DarkSeaGreen":"#8fbc8f",
+"DarkSlateBlue":"#483d8b","DarkSlateGray":"#2f4f4f","DarkSlateGrey":"#2f4f4f","DarkTurquoise":"#00ced1","DarkViolet":"#9400d3",
+"DeepPink":"#ff1493","DeepSkyBlue":"#00bfff","DimGray":"#696969","DimGrey":"#696969","DodgerBlue":"#1e90ff",
+"Firebrick":"#b22222","FloralWhite":"#fffaf0","ForestGreen":"#228b22","Fuchsia":"#ff00ff","Gainsboro":"#dcdcdc",
+"GhostWhite":"#f8f8ff","Gold":"#ffd700","Goldenrod":"#daa520","Gray":"#808080","Grey":"#808080","Green":"#008000",
+"GreenYellow":"#adff2f","Honeydew":"#f0fff0","HotPink":"#ff69b4","IndianRed":"#cd5c5c","Indigo":"#4b0082",
+"Ivory":"#fffff0","Khaki":"#f0e68c","Lavender":"#e6e6fa","LavenderBlush":"#fff0f5","LawnGreen":"#7cfc00",
+"LemonChiffon":"#fffacd","LightBlue":"#add8e6","LightCoral":"#f08080","LightCyan":"#e0ffff","LightGoldenrodYellow":"#fafad2",
+"LightGray":"#d3d3d3","LightGrey":"#d3d3d3","LightGreen":"#90ee90","LightPink":"#ffb6c1","LightSalmon":"#ffa07a",
+"LightSeaGreen":"#20b2aa","LightSkyBlue":"#87cefa","LightSlateGray":"#778091","LightSlateGrey":"#778091","LightSteelBlue":"#b0c4de",
+"LightYellow":"#ffffe0","Lime":"#00ff00","LimeGreen":"#32cd32","Linen":"#faf0e6","Magenta":"#ff00ff",
+"Maroon":"#800000","MediumAquamarine":"#66cd66","MediumBlue":"#0000cd","MediumOrchid":"#ba55d3","MediumPurple":"#9370db",
+"MediumSeaGreen":"#3cb371","MediumSlateBlue":"#7b68ee","MediumSpringGreen":"#00fa9a","MediumTurquoise":"#48d1cc","MediumVioletRed":"#c71585",
+"MidnightBlue":"#191970","MintCream":"#f5fffa","MistyRose":"#ffe4e1","Moccasin":"#ffe4b5","NavajoWhite":"#ffdead",
+"Navy":"#000080","OldLace":"#fdf5e6","Olive":"#808000","OliveDrab":"#6b8e23","Orange":"#ffa500",
+"OrangeRed":"#ff4500","Orchid":"#da70d6","PaleGoldenrod":"#eee8aa","PaleGreen":"#98fb98","PaleTurquoise":"#afeeee",
+"PaleVioletRed":"#db7093","PapayaWhip":"#ffefd5","PeachPuff":"#ffdab9","Peru":"#cd853f","Pink":"#ffc0cb",
+"Plum":"#dda0dd","PowderBlue":"#b0e0e6","Purple":"#800080","Rebeccapurple":"#663399","Red":"#ff0000",
+"RosyBrown":"#bc8f8f","RoyalBlue":"#4169e1","SaddleBrown":"#8b4513","Salmon":"#fa8072","SandyBrown":"#f4a460",
+"SeaGreen":"#2e8b57","Seashell":"#fff5ee","Sienna":"#a0522d","Silver":"#c0c0c0","SkyBlue":"#87ceeb",
+"SlateBlue":"#6a5acd","SlateGray":"#708090","SlateGrey":"#708090","Snow":"#fffafa","SpringGreen":"#00ff7f",
+"SteelBlue":"#4682b4","Tan":"#d2b48c","Teal":"#008080","Thistle":"#d8bfd8","Tomato":"#ff6347",
+"Turquoise":"#40e0d0","Violet":"#ee82ee","Wheat":"#f5deb3","White":"#ffffff","WhiteSmoke":"#f5f5f5",
+"Yellow":"#ffff00","YellowGreen":"#9acd32"};
+/* ---------- conversions ---------- */
+function clamp(v,lo,hi){return Math.min(hi,Math.max(lo,v));}
+function hslToRgb(h,s,l){
+  h=((h%360)+360)%360;s/=100;l/=100;
+  var c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs((h/60)%2-1)),m=l-c/2,r=0,g=0,b=0;
+  if(h<60){r=c;g=x;}else if(h<120){r=x;g=c;}else if(h<180){g=c;b=x;}
+  else if(h<240){g=x;b=c;}else if(h<300){r=x;b=c;}else{r=c;b=x;}
+  return[Math.round((r+m)*255),Math.round((g+m)*255),Math.round((b+m)*255)];
+}
+function rgbToHsl(r,g,b){
+  r/=255;g/=255;b/=255;
+  var mx=Math.max(r,g,b),mn=Math.min(r,g,b),h=0,s=0,l=(mx+mn)/2,d=mx-mn;
+  if(d>1e-9){
+    s=d/(1-Math.abs(2*l-1));
+    if(mx===r)h=((g-b)/d)%6;else if(mx===g)h=(b-r)/d+2;else h=(r-g)/d+4;
+    h*=60;if(h<0)h+=360;
+  }
+  /* floats, not rounded ints: hex -> hsl -> hex must round-trip exactly */
+  return[h,s*100,l*100];
+}
+function parseHex(str){
+  if(!str)return null;
+  var t=str.trim().replace(/^#/,"");
+  if(/^[0-9a-fA-F]{3}$/.test(t))t=t[0]+t[0]+t[1]+t[1]+t[2]+t[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(t))return null;
+  return[parseInt(t.slice(0,2),16),parseInt(t.slice(2,4),16),parseInt(t.slice(4,6),16)];
+}
+function toHex(r,g,b){
+  return"#"+[r,g,b].map(function(v){return("0"+clamp(v,0,255).toString(16)).slice(-2);}).join("");
+}
+function relLum(r,g,b){
+  var a=[r,g,b].map(function(v){v/=255;return v<=0.04045?v/12.92:Math.pow((v+0.055)/1.055,2.4);});
+  return 0.2126*a[0]+0.7152*a[1]+0.0722*a[2];
+}
+function contrast(l1,l2){var lo=Math.min(l1,l2);return(Math.max(l1,l2)+0.05)/(lo+0.05);}
+/* ---------- state + sync ---------- */
+var state={h:220,s:100,l:66};
+var recent=store.get("recent",[]);
+var copyFmt="hex";
+function rgb(){return hslToRgb(state.h,state.s,state.l);}
+function el(id){return document.getElementById(id);}
+function render(source){
+  var c=rgb(),hex=toHex(c[0],c[1],c[2]);
+  var hs=el("h"),ss=el("s"),ls=el("l"),rs=el("r"),gs=el("g"),bs=el("b"),hx=el("hex-in"),nv=el("native");
+  if(source!=="hsl"){hs.value=state.h;ss.value=state.s;ls.value=state.l;}
+  if(source!=="rgb"){rs.value=c[0];gs.value=c[1];bs.value=c[2];}
+  if(source!=="hex"&&source!=="native")hx.value=hex;
+  if(source!=="native")nv.value=hex;
+  el("h-o").textContent=Math.round(state.h);el("s-o").textContent=Math.round(state.s);el("l-o").textContent=Math.round(state.l);
+  el("r-o").textContent=c[0];el("g-o").textContent=c[1];el("b-o").textContent=c[2];
+  if(source==="hex"||source==="native"||source==="set"){hx.value=hex;}
+  updatePreview(hex,c);
+  updateCopy(hex,c);
+  updateNamed(hex);
+}
+function updatePreview(hex,c){
+  var sw=el("swatch");
+  sw.style.backgroundColor=hex;
+  var fw=(relLum(c[0],c[1],c[2])>0.45)?"#10151d":"#f4f7fb";
+  sw.style.color=fw;
+  var L=relLum(c[0],c[1],c[2]),Lw=1,Lb=0;
+  var cw=contrast(L,Lw),cb=contrast(L,Lb);
+  function badge(label,val,needAA,needAAA){
+    var b=document.createElement("span");
+    b.className="bdg"+(val>=needAAA?" pass":val>=needAA?" pass":" fail");
+    b.textContent=label+": "+val.toFixed(2)+":1 "+(val>=needAAA?"AAA":val>=needAA?"AA":"below AA");
+    return b;
+  }
+  var box=el("contrast");box.textContent="";
+  box.appendChild(badge("vs white",cw,4.5,7));
+  box.appendChild(badge("vs black",cb,4.5,7));
+  var f=document.createElement("span");f.className="bdg";
+  f.textContent=(relLum(c[0],c[1],c[2])>0.45)?"auto fg: dark":"auto fg: light";
+  box.appendChild(f);
+}
+function nearestName(c){
+  var best=null,bd=Infinity;
+  Object.keys(NAMES).forEach(function(n){
+    var h=parseHex(NAMES[n]);if(!h)return;
+    var dr=h[0]-c[0],dg=h[1]-c[1],db=h[2]-c[2];
+    var d=dr*dr*2+dg*dg*4+db*db*3;
+    if(d<bd){bd=d;best=n;}
+  });
+  return{name:best,dist:bd};
+}
+function updateNamed(hex){
+  var info=el("named-info"),c=rgb();
+  var exact=Object.keys(NAMES).filter(function(n){return NAMES[n].toLowerCase()===hex;});
+  var near=nearestName(c);
+  if(exact.length)info.textContent="This color is the CSS name: "+exact.join(", ");
+  else info.textContent="Nearest CSS name: "+near.name+" ("+NAMES[near.name]+")";
+}
+function harmonyRow(id,hs){
+  var box=el(id);box.textContent="";
+  hs.forEach(function(h,idx){
+    var c=hslToRgb(h.h,clamp(h.s,0,100),clamp(h.l,0,100));
+    var hex=toHex(c[0],c[1],c[2]);
+    var b=document.createElement("button");b.type="button";b.className="sw";
+    b.style.backgroundColor=hex;
+    b.setAttribute("aria-label","Use harmony color "+hex+" ("+h.label+")");
+    b.title=h.label+" "+hex;
+    b.addEventListener("click",function(){fromHex(hex,"set");pushRecent(hex);});
+    box.appendChild(b);
+  });
+}
+function updateHarmonies(){
+  var h=state.h,s=state.s,l=state.l;
+  function mk(hh,label,ss,ll){return{h:(hh%360+360)%360,s:ss==null?s:ss,l:ll==null?l:ll,label:label};}
+  harmonyRow("h-comp",[mk(h,"base"),mk(h+180,"complement")]);
+  harmonyRow("h-triad",[mk(h,"base"),mk(h+120,"triad"),mk(h+240,"triad")]);
+  harmonyRow("h-analog",[mk(h-30,"analog"),mk(h,"base"),mk(h+30,"analog")]);
+  harmonyRow("h-split",[mk(h,"base"),mk(h+150,"split"),mk(h+210,"split")]);
+}
+function updateCopy(hex,c){
+  var t;
+  if(copyFmt==="hex")t=hex;
+  else if(copyFmt==="rgb")t="rgb("+c[0]+", "+c[1]+", "+c[2]+")";
+  else if(copyFmt==="hsl")t="hsl("+Math.round(state.h)+", "+Math.round(state.s)+"%, "+Math.round(state.l)+"%)";
+  else t="--brand-color: "+hex+";";
+  el("copy-out").textContent=t;
+  document.querySelectorAll("#copybar [data-fmt]").forEach(function(b){
+    b.classList.toggle("primary",b.dataset.fmt===copyFmt);});
+}
+function pushRecent(hex){
+  hex=hex.toLowerCase();
+  recent=recent.filter(function(x){return x!==hex;});
+  recent.unshift(hex);
+  if(recent.length>24)recent.length=24;
+  store.set("recent",recent);
+  renderRecent();
+}
+function renderRecent(){
+  var box=el("recent");box.textContent="";
+  if(!recent.length){var s=document.createElement("span");s.className="muted";s.textContent="No colors yet.";box.appendChild(s);return;}
+  recent.forEach(function(hex){
+    var b=document.createElement("button");b.type="button";b.className="sw";
+    b.style.backgroundColor=hex;b.title=hex;
+    b.setAttribute("aria-label","Restore recent color "+hex);
+    b.addEventListener("click",function(){fromHex(hex,"set");});
+    box.appendChild(b);
+  });
+}
+function fromHex(hex,src){
+  var c=parseHex(hex);if(!c)return false;
+  var hsl=rgbToHsl(c[0],c[1],c[2]);
+  if(hsl[1]===0&&state.s===0)hsl[0]=state.h; /* keep hue when grayscale */
+  state={h:hsl[0],s:hsl[1],l:hsl[2]};
+  render(src);updateHarmonies();
+  return true;
+}
+/* ---------- events ---------- */
+["h","s","l"].forEach(function(id){
+  el(id).addEventListener("input",function(){
+    state[id==="h"?"h":id==="s"?"s":"l"]=parseInt(this.value,10);
+    render("hsl");updateHarmonies();
+  });
+  el(id).addEventListener("change",function(){pushRecent(toHex.apply(null,rgb()));});
+});
+["r","g","b"].forEach(function(id){
+  el(id).addEventListener("input",function(){
+    var c=[parseInt(el("r").value,10),parseInt(el("g").value,10),parseInt(el("b").value,10)];
+    var hsl=rgbToHsl(c[0],c[1],c[2]);
+    if(hsl[1]===0&&state.s===0)hsl[0]=state.h;
+    state={h:hsl[0],s:hsl[1],l:hsl[2]};
+    render("rgb");updateHarmonies();
+  });
+  el(id).addEventListener("change",function(){pushRecent(toHex.apply(null,rgb()));});
+});
+el("native").addEventListener("input",function(){fromHex(this.value,"native");});
+el("native").addEventListener("change",function(){pushRecent(this.value.toLowerCase());});
+el("hex-in").addEventListener("input",function(){
+  var c=parseHex(this.value);
+  if(c){fromHex(this.value,"hex");this.setAttribute("aria-invalid","false");}
+  else this.setAttribute("aria-invalid",this.value.trim()?"true":"false");
+});
+el("hex-in").addEventListener("change",function(){
+  if(fromHex(this.value,"hex"))pushRecent(toHex.apply(null,rgb()));
+  else render("set"); /* restore canonical hex */
+});
+el("rand").addEventListener("click",function(){
+  var c=[0,0,0].map(function(){return Math.floor(Math.random()*256);});
+  fromHex(toHex(c[0],c[1],c[2]),"set");
+  pushRecent(toHex(c[0],c[1],c[2]));
+});
+el("clear-rec").addEventListener("click",function(){
+  recent=[];store.set("recent",recent);renderRecent();
+});
+document.querySelectorAll("#copybar [data-fmt]").forEach(function(b){
+  b.addEventListener("click",function(){copyFmt=b.dataset.fmt;updateCopy(toHex.apply(null,rgb()),rgb());});
+});
+function copyText(t){
+  function ok(){el("msg").textContent="Copied: "+t;}
+  function legacy(){try{var ta=document.createElement("textarea");ta.value=t;ta.style.position="fixed";ta.style.opacity="0";
+    document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();ok();}catch(e){el("msg").textContent="Copy blocked — select the text and copy manually.";}}
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t).then(ok,legacy);
+  else legacy();
+}
+el("copy-go").addEventListener("click",function(){copyText(el("copy-out").textContent);});
+/* named color search */
+var NAME_KEYS=Object.keys(NAMES);
+function searchNames(q){
+  var list=el("names-list");list.textContent="";
+  q=(q||"").trim().toLowerCase();
+  var hits=NAME_KEYS.filter(function(n){
+    if(!q)return false;
+    return n.toLowerCase().indexOf(q)>=0||NAMES[n].indexOf(q)>=0;
+  }).sort(function(a,b){return a.length-b.length||a.localeCompare(b);});
+  if(q&&hits.length>60)hits.length=60;
+  var frag=document.createDocumentFragment();
+  hits.forEach(function(n){
+    var b=document.createElement("button");b.type="button";b.className="nameitem";b.setAttribute("role","option");
+    var i=document.createElement("i");i.style.backgroundColor=NAMES[n];
+    var t=document.createElement("span");t.textContent=n;
+    b.appendChild(i);b.appendChild(t);
+    b.setAttribute("aria-label","Use named color "+n+" "+NAMES[n]);
+    b.addEventListener("click",function(){fromHex(NAMES[n],"set");pushRecent(NAMES[n].toLowerCase());});
+    frag.appendChild(b);
+  });
+  list.appendChild(frag);
+  if(!q){
+    var hint=document.createElement("span");hint.className="muted";hint.style.fontSize="11px";
+    hint.textContent="Type to search — e.g. “teal”, “light”, “#ff”.";
+    list.appendChild(hint);
+  }
+}
+el("name-search").addEventListener("input",function(){searchNames(this.value);});
+/* ---------- init ---------- */
+(function init(){
+  var saved=store.get("current",null);
+  if(saved&&typeof saved.h==="number")state=saved;
+  fromHex(toHex.apply(null,rgb()),"set");
+  renderRecent();searchNames("");
+  ["h","s","l","r","g","b","native","hex-in"].forEach(function(id){
+    el(id).addEventListener("change",function(){store.set("current",state);});
+  });
+  if(!store.persistent){
+    var f=el("foot");
+    f.textContent=f.textContent+" Recent colors are session only, not persisted (embedded sandbox).";
+  }
+})();
+if(typeof module!=="undefined")module.exports={hslToRgb:hslToRgb,rgbToHsl:rgbToHsl,parseHex:parseHex,toHex:toHex,relLum:relLum,contrast:contrast,NAMES:NAMES};
+</script>
+</body>
+</html>

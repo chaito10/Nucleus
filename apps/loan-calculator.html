@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<!--
+  Nucleus catalogue app: Loan Calculator.
+  Self-contained offline single file. Contract: apps/CATALOG.md.
+  All money maths in integer cents; amortisation rounds period interest to the nearest
+  cent half-up and caps the final payment at the remaining balance (never negative).
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loan Calculator</title>
+<script type="application/nucleus+json">
+{"id":"loan-calculator","name":"Loan Calculator","cat":"Everyday Utilities",
+ "desc":"EMI, amortisation schedule and overpayment savings.","icon":"calc","w":880,"h":620}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --ok:#3ecf8e; --bad:#ef6e6e;
+  --radius:10px; --font:13px;
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+  --ok:#1a8f5c; --bad:#b3403f;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}
+.col{display:flex;flex-direction:column;gap:10px;min-width:240px;flex:1 1 260px}
+.results{flex:2 1 420px;min-width:260px;display:flex;flex-direction:column;gap:10px}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+textarea,input[type=text],input[type=number],select{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px;width:100%}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+label{display:flex;flex-direction:column;gap:4px;font-size:12px}
+.cards{display:flex;gap:8px;flex-wrap:wrap}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;min-width:130px;flex:1 1 130px}
+.card b{display:block;font-size:15px;margin-top:2px;font-variant-numeric:tabular-nums}
+.tablewrap{overflow:auto;max-height:46vh;border:1px solid var(--border);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:4px 8px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{position:sticky;top:0;background:var(--bg);color:var(--muted);font-weight:600}
+#status{font-size:12px;min-height:16px}
+#status.err{color:var(--bad)}
+#status.ok{color:var(--ok)}
+@media (max-width:640px){main{flex-direction:column}.col,.results{flex:1 1 auto;min-width:0}.tablewrap{max-height:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header><h1>Loan Calculator</h1><span class="muted">EMI &amp; amortisation, cent-exact integer maths</span></header>
+<main>
+  <div class="col" role="group" aria-label="Loan inputs">
+    <label for="in-principal">Principal <span class="muted" id="cur-note">(currency unit)</span>
+      <input type="text" id="in-principal" inputmode="decimal" value="250000" spellcheck="false"></label>
+    <label for="in-rate">Annual interest rate (%)
+      <input type="text" id="in-rate" inputmode="decimal" value="7.5" spellcheck="false"></label>
+    <div class="row">
+      <label for="in-term" style="flex:2 1 120px">Term
+        <input type="text" id="in-term" inputmode="decimal" value="20" spellcheck="false"></label>
+      <label for="in-termunit" style="flex:1 1 90px">&nbsp;
+        <select id="in-termunit"><option value="years" selected>years</option><option value="periods">payments</option></select></label>
+    </div>
+    <label for="in-freq">Payment frequency
+      <select id="in-freq">
+        <option value="12" selected>Monthly (12/yr)</option>
+        <option value="24">Semi-monthly (24/yr)</option>
+        <option value="26">Bi-weekly (26/yr)</option>
+        <option value="52">Weekly (52/yr)</option>
+        <option value="1">Yearly (1/yr)</option>
+      </select></label>
+    <label for="in-extra"><span id="extra-label">Extra payment per period (optional)</span>
+      <input type="text" id="in-extra" inputmode="decimal" value="" placeholder="0" spellcheck="false"></label>
+    <label for="in-cur">Currency symbol (display only)
+      <input type="text" id="in-cur" value="$" maxlength="3" spellcheck="false"></label>
+    <div class="row">
+      <button class="btn primary" id="btn-calc" type="button">Calculate</button>
+      <button class="btn" id="btn-csv" type="button" disabled>Export schedule CSV</button>
+    </div>
+    <div id="status" aria-live="polite" class="muted"></div>
+    <p class="muted" style="margin:0">Rounding rules: the EMI is the closed-form annuity payment rounded to the nearest cent (half-up); each period's interest is the opening balance &times; the period rate rounded to the nearest cent (half-up); the final payment is capped at balance + interest, so overpaying past the balance ends the loan at exactly 0.00 and never goes negative.</p>
+  </div>
+  <div class="results">
+    <div class="cards" id="cards" hidden>
+      <div class="card">Payment<span class="muted"> per period</span><b id="c-pay">–</b></div>
+      <div class="card">Total interest<b id="c-int">–</b></div>
+      <div class="card">Total paid<b id="c-tot">–</b></div>
+      <div class="card">Payments made<b id="c-per">–</b></div>
+    </div>
+    <div class="cards" id="savecards" hidden>
+      <div class="card">Interest saved by overpaying<b id="c-saveint">–</b></div>
+      <div class="card">Payments shaved off<b id="c-saveper">–</b></div>
+      <div class="card">Without extra: interest<b id="c-baseint">–</b></div>
+    </div>
+    <div class="row">
+      <label for="view-mode" style="flex-direction:row;align-items:center">Table view
+        <select id="view-mode" style="width:auto"><option value="auto" selected>Auto</option><option value="periods">Per period</option><option value="years">Collapse to years</option></select></label>
+    </div>
+    <div class="tablewrap" id="tablewrap" hidden>
+      <table aria-label="Amortisation schedule"><thead><tr id="th-row"></tr></thead><tbody id="tbody"></tbody></table>
+    </div>
+    <p class="muted" id="truncnote" hidden></p>
+  </div>
+</main>
+<footer><span class="muted" id="foot">Runs offline. Estimates only — not financial advice. Data stays on this device.</span></footer>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-loan-calculator-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-loan-calculator-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+</script>
+<script>
+"use strict";
+/* ================= Loan logic (pure, integer cents; unit-tested under node) ================= */
+function halfUp(x){return Math.floor(x+0.5);}                    /* x >= 0, result integer */
+function parseCents(str){
+  var s=String(str==null?"":str).trim().replace(/[,\s ]/g,"").replace(/^\+/,"");
+  if(!/^\d*(\.\d*)?$/.test(s)||s===""||s===".")return null;
+  var v=Number(s);
+  if(!isFinite(v))return null;
+  var c=halfUp(v*100);
+  if(c>1e10)return null;                                          /* cap 100 000 000 000 cents */
+  return c;
+}
+function parseRate(str){
+  var s=String(str==null?"":str).trim();
+  if(!/^\d*(\.\d*)?$/.test(s)||s===""||s===".")return null;
+  var v=Number(s);
+  return isFinite(v)?v:null;
+}
+function formatCents(c,symbol){
+  symbol=symbol||"";
+  var neg=c<0,abs=Math.abs(c);
+  var d=String(Math.floor(abs/100)),r=String(abs%100);
+  while(r.length<2)r="0"+r;
+  var withCommas=d.replace(/\B(?=(\d{3})+(?!\d))/g,",");
+  return (neg?"-":"")+symbol+withCommas+"."+r;
+}
+function periodRate(annualPct,ppy){return annualPct/100/ppy;}
+/* Closed-form annuity payment, rounded to nearest cent half-up; zero-rate = principal/n half-up. */
+function emiCents(principalCents,annualPct,ppy,n){
+  var i=periodRate(annualPct,ppy);
+  if(i===0)return halfUp(principalCents/n);
+  var exact=principalCents*i/(1-Math.pow(1+i,-n));
+  return halfUp(exact);
+}
+/* Amortise. o={principalCents,annualRatePct,periodsPerYear,termPeriods,extraCents,paymentCents}
+   Returns {error} or {rows,paymentCents,totalInterest,totalPaid,periodsUsed}. */
+function amortize(o){
+  var P=o.principalCents,ppy=o.periodsPerYear,pct=o.annualRatePct,n=o.termPeriods;
+  var extra=o.extraCents||0;
+  if(!Number.isInteger(P)||P<=0||P>1e10)return{error:"Principal must be between 0.01 and 100,000,000,000."};
+  if(!(ppy===1||ppy===12||ppy===24||ppy===26||ppy===52))return{error:"Unsupported payment frequency."};
+  if(!(pct>=0&&pct<=100))return{error:"Annual rate must be between 0 and 100 (percent)."};
+  if(!Number.isInteger(n)||n<1||n>4800)return{error:"Number of payments must be a whole number between 1 and 4800."};
+  if(!Number.isInteger(extra)||extra<0||extra>1e9)return{error:"Extra payment must be between 0 and 10,000,000."};
+  var i=periodRate(pct,ppy);
+  var pay=Number.isInteger(o.paymentCents)?o.paymentCents:emiCents(P,pct,ppy,n);
+  if(pay<=0)return{error:"Computed payment is not positive."};
+  if(i>0&&pay<=halfUp(P*i))return{error:"Payment ("+formatCents(pay)+") does not cover the first period's interest — the balance would grow. Increase the payment or lower the rate."};
+  var FREQ={1:"yearly",12:"monthly",24:"semi-monthly",26:"bi-weekly",52:"weekly"};
+  var rows=[],open=P,totI=0,totP=0;
+  var guard=n+12;                                                 /* rounding can occasionally need 1-2 extra periods */
+  for(var per=1;open>0&&per<=guard;per++){
+    var interest=halfUp(open*i);
+    var avail=pay+extra;
+    var payment,principal,closing;
+    if(open+interest<=avail){payment=open+interest;principal=open;closing=0;}
+    else{
+      if(avail<=interest)return{error:"Balance stopped amortising at payment "+per+" (payment does not cover interest)."};
+      payment=avail;principal=avail-interest;closing=open-principal;
+    }
+    rows.push({period:per,open:open,payment:payment,interest:interest,principal:principal,closing:closing});
+    totI+=interest;totP+=payment;open=closing;
+  }
+  if(open>0)return{error:"Schedule did not close; extend the term."};
+  return{rows:rows,paymentCents:pay,extraCents:extra,totalInterest:totI,totalPaid:totP,
+         periodsUsed:rows.length,freq:FREQ[ppy],termPeriods:n};
+}
+function collapseYears(rows,ppy){
+  var out=[],i;
+  for(i=0;i<rows.length;i+=ppy){
+    var grp=rows.slice(i,Math.min(i+ppy,rows.length));
+    out.push({year:Math.floor(i/ppy)+1,open:grp[0].open,
+      payment:grp.reduce(function(a,r){return a+r.payment;},0),
+      interest:grp.reduce(function(a,r){return a+r.interest;},0),
+      principal:grp.reduce(function(a,r){return a+r.principal;},0),
+      closing:grp[grp.length-1].closing,periods:grp.length});
+  }
+  return out;
+}
+function overpaymentSavings(base,over){
+  return{interestSavedCents:base.totalInterest-over.totalInterest,
+         periodsSaved:base.periodsUsed-over.periodsUsed,
+         shorterNote:base.periodsUsed-over.periodsUsed<=0?"Overpayment is too small to remove a full payment yet, but interest is still saved.":""};
+}
+function centsToPlain(c){
+  var abs=Math.abs(c),d=Math.floor(abs/100),r=String(abs%100);
+  while(r.length<2)r="0"+r;
+  return (c<0?"-":"")+d+"."+r;
+}
+function scheduleToCsv(rows){
+  var lines=["Period,Opening,Payment,Interest,Principal,Closing"];
+  for(var i=0;i<rows.length;i++){var r=rows[i];
+    lines.push([r.period,centsToPlain(r.open),centsToPlain(r.payment),centsToPlain(r.interest),centsToPlain(r.principal),centsToPlain(r.closing)].join(","));}
+  return lines.join("\r\n")+"\r\n";
+}
+function termToPeriods(termStr,unit,ppy){
+  var v=parseRate(termStr);
+  if(v==null||v<=0)return null;
+  if(unit==="periods"){var n=Math.round(v);return Number.isInteger(v)&&Math.abs(v-n)<1e-9?n:null;}
+  if(v>100)return null;
+  return halfUp(v*ppy);
+}
+function validateInput(strs){
+  var P=parseCents(strs.principal);
+  if(P==null||P<=0)return{error:"Enter a principal amount between 0.01 and 100,000,000,000."};
+  var pct=parseRate(strs.rate);
+  if(pct==null||pct<0||pct>100)return{error:"Enter an annual rate between 0 and 100 (percent)."};
+  return null;
+}
+if(typeof module!=="undefined")module.exports={halfUp:halfUp,parseCents:parseCents,parseRate:parseRate,formatCents:formatCents,periodRate:periodRate,emiCents:emiCents,amortize:amortize,collapseYears:collapseYears,overpaymentSavings:overpaymentSavings,scheduleToCsv:scheduleToCsv,centsToPlain:centsToPlain,termToPeriods:termToPeriods,validateInput:validateInput};
+</script>
+<script>
+"use strict";
+/* ================= UI wiring ================= */
+var lastBase=null,lastOver=null,lastPpy=12;
+function $(id){return document.getElementById(id);}
+function setStatus(msg,cls){
+  var el=$("status");el.textContent=msg||"";el.className=cls||"muted";
+}
+function updateExtraLabel(){
+  var ppy=Number($("in-freq").value);
+  var names={12:"month",24:"half-month",26:"two weeks",52:"week",1:"year"};
+  $("extra-label").textContent="Extra payment per "+(names[ppy]||"period")+" (optional)";
+}
+function renderTable(){
+  var rows=lastOver?lastOver.rows:lastBase.rows;
+  var mode=$("view-mode").value;
+  var useYears=mode==="years"||(mode==="auto"&&rows.length>120);
+  var wrap=$("tablewrap"),th=$("th-row"),tb=$("tbody"),note=$("truncnote");
+  while(th.firstChild)th.removeChild(th.firstChild);
+  while(tb.firstChild)tb.removeChild(tb.firstChild);
+  function h(t){var c=document.createElement("th");c.textContent=t;th.appendChild(c);}
+  function cell(t){var c=document.createElement("td");c.textContent=t;return c;}
+  wrap.hidden=false;
+  var sym=$("in-cur").value||"";
+  var MAXROWS=1000;
+  if(useYears){
+    ["Year","Opening","Paid","Interest","Principal","Closing"].forEach(h);
+    var yrs=collapseYears(rows,lastPpy),shown=Math.min(yrs.length,MAXROWS);
+    for(var i=0;i<shown;i++){var y=yrs[i],tr=document.createElement("tr");
+      [y.year,formatCents(y.open,sym),formatCents(y.payment,sym),formatCents(y.interest,sym),formatCents(y.principal,sym),formatCents(y.closing,sym)]
+        .forEach(function(v){tr.appendChild(cell(String(v)));});
+      tb.appendChild(tr);}
+    note.hidden=yrs.length<=MAXROWS;
+    note.textContent="Showing first "+MAXROWS+" of "+yrs.length+" years — export CSV for every period.";
+  }else{
+    ["#","Opening","Payment","Interest","Principal","Closing"].forEach(h);
+    var shown2=Math.min(rows.length,MAXROWS);
+    for(var j=0;j<shown2;j++){var r=rows[j],tr2=document.createElement("tr");
+      [r.period,formatCents(r.open,sym),formatCents(r.payment,sym),formatCents(r.interest,sym),formatCents(r.principal,sym),formatCents(r.closing,sym)]
+        .forEach(function(v){tr2.appendChild(cell(String(v)));});
+      tb.appendChild(tr2);}
+    note.hidden=rows.length<=MAXROWS;
+    note.textContent="Showing first "+MAXROWS+" of "+rows.length+" periods — switch to yearly collapse or export CSV.";
+  }
+  note.hidden=note.hidden;
+}
+function recalc(){
+  var errs=validateInput({principal:$("in-principal").value,rate:$("in-rate").value});
+  if(errs){setStatus(errs.error,"err");showResults(false);return;}
+  lastPpy=Number($("in-freq").value);
+  var n=termToPeriods($("in-term").value,$("in-termunit").value,lastPpy);
+  if(n==null){setStatus("Enter a term: 1–100 years or 1–4800 payments (whole number).","err");showResults(false);return;}
+  var P=parseCents($("in-principal").value);
+  var pct=parseRate($("in-rate").value);
+  var extraStr=$("in-extra").value.trim();
+  var extra=extraStr===""?0:parseCents(extraStr);
+  if(extra==null||extra<0){setStatus("Extra payment must be 0 or more.","err");showResults(false);return;}
+  var base=amortize({principalCents:P,annualRatePct:pct,periodsPerYear:lastPpy,termPeriods:n,extraCents:0});
+  if(base.error){setStatus(base.error,"err");showResults(false);return;}
+  lastBase=base;lastOver=null;
+  var sym=$("in-cur").value||"";
+  if(extra>0){
+    var over=amortize({principalCents:P,annualRatePct:pct,periodsPerYear:lastPpy,termPeriods:n,extraCents:extra,paymentCents:base.paymentCents});
+    if(over.error){setStatus(over.error,"err");showResults(false);return;}
+    lastOver=over;
+    var sv=overpaymentSavings(base,over);
+    $("savecards").hidden=false;
+    $("c-saveint").textContent=formatCents(sv.interestSavedCents,sym);
+    $("c-saveper").textContent=String(sv.periodsSaved);
+    $("c-baseint").textContent=formatCents(base.totalInterest,sym);
+    if(sv.shorterNote)setStatus("Note: "+sv.shorterNote,"muted");
+    else setStatus("Loan closes "+sv.periodsSaved+" payment(s) early; "+formatCents(sv.interestSavedCents,sym)+" interest saved.","ok");
+    renderOver(over,base);
+    return;
+  }
+  $("savecards").hidden=true;
+  setStatus("","muted");
+  renderBase(base);
+}
+function renderBase(b){
+  var sym=$("in-cur").value||"";
+  $("cards").hidden=false;$("c-pay").textContent=formatCents(b.paymentCents,sym);
+  $("c-int").textContent=formatCents(b.totalInterest,sym);
+  $("c-tot").textContent=formatCents(b.totalPaid,sym);
+  $("c-per").textContent=b.periodsUsed+" of "+b.termPeriods;
+  renderTable();
+}
+function renderOver(over,base){
+  var sym=$("in-cur").value||"";
+  $("cards").hidden=false;$("c-pay").textContent=formatCents(over.paymentCents,sym)+" + "+formatCents(over.extraCents,sym);
+  $("c-int").textContent=formatCents(over.totalInterest,sym);
+  $("c-tot").textContent=formatCents(over.totalPaid,sym);
+  $("c-per").textContent=over.periodsUsed+" of "+base.termPeriods;
+  renderTable();
+}
+function showResults(on){
+  $("cards").hidden=!on;$("savecards").hidden=true;$("tablewrap").hidden=!on;$("truncnote").hidden=true;
+  if(!on){lastBase=null;lastOver=null;}
+  $("btn-csv").disabled=!on;
+}
+function exportCsv(){
+  var rows=lastOver?lastOver.rows:(lastBase&&lastBase.rows);
+  if(!rows){setStatus("Calculate first.","err");return;}
+  try{
+    var blob=new Blob([scheduleToCsv(rows)],{type:"text/csv;charset=utf-8"});
+    var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="amortisation-schedule.csv";
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){URL.revokeObjectURL(a.href);},5000);
+    setStatus("CSV exported ("+rows.length+" rows).","ok");
+  }catch(e){setStatus("Export failed in this browser context.","err");}
+}
+function init(){
+  ["in-principal","in-rate","in-term","in-termunit","in-freq","in-extra","in-cur"].forEach(function(id){
+    $(id).addEventListener("input",function(){if(id==="in-freq")updateExtraLabel();recalc();});
+  });
+  $("view-mode").addEventListener("change",function(){if(lastBase)renderTable();});
+  $("btn-calc").addEventListener("click",recalc);
+  $("btn-csv").addEventListener("click",exportCsv);
+  var saved=store.get("inputs",null);
+  if(saved&&typeof saved==="object"){
+    ["in-principal","in-rate","in-term","in-termunit","in-freq","in-extra","in-cur"].forEach(function(id){
+      if(typeof saved[id]==="string")$(id).value=saved[id];});
+  }
+  var ids=["in-principal","in-rate","in-term","in-termunit","in-freq","in-extra","in-cur"];
+  var persistPrefs=function(){var o={};ids.forEach(function(id){o[id]=String($(id).value);});store.set("inputs",o);};
+  ids.forEach(function(id){$(id).addEventListener("change",persistPrefs);});
+  updateExtraLabel();
+  recalc();
+  if(!store.persistent){$("foot").textContent=$("foot").textContent+" Inputs are session only, not persisted (embedded sandbox).";}
+}
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<!--
+  Nucleus catalogue app: Regex Tester (id: regex-tester)
+  Self-contained single file: no network, no libraries, no build step.
+  Contract rules: apps/CATALOG.md
+  Note: patterns are compiled with new RegExp() inside try/catch — the app's purpose. No eval,
+  no code execution of any kind, and nothing is rendered as HTML.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Regex Tester</title>
+<script type="application/nucleus+json">
+{"id":"regex-tester","name":"Regex Tester","cat":"Developer Tools","desc":"Test patterns with live matches and groups.","icon":"terminal","w":760,"h":520}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --radius:10px; --font:13px;
+  --ok:#4ecb8f; --err:#ff7b7b; --warn:#e0a35c;
+  --accent-soft:rgba(79,140,255,.22); --hit:rgba(79,140,255,.34); --hit2:rgba(78,203,143,.28);
+  --code-bg:rgba(0,0,0,.22);
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+  --ok:#0f7a4d; --err:#b3261e; --warn:#8a5210;
+  --accent-soft:rgba(31,86,168,.16); --hit:rgba(31,86,168,.24); --hit2:rgba(15,122,77,.2);
+  --code-bg:rgba(255,255,255,.6);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px;display:flex;gap:10px;flex-wrap:wrap}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+textarea,input[type=text],input[type=number],select{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px;width:100%}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* ---------- app ---------- */
+.spacer{flex:1 1 12px}
+.hbtns{gap:6px}
+.hbtns .btn{padding:5px 9px}
+h2{margin:0 0 6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+h2 .btn{padding:2px 8px;font-size:11px;text-transform:none;letter-spacing:0}
+.pattern-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.delim{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:16px;color:var(--muted)}
+#pattern{flex:1 1 200px;min-width:150px;font-family:ui-monospace,Consolas,monospace;font-size:13px}
+fieldset{border:1px solid var(--border);border-radius:8px;padding:6px 8px;margin:0;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+legend{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:0 4px}
+label.flag{display:flex;align-items:center;gap:4px;font-size:12px;font-family:ui-monospace,Consolas,monospace;cursor:pointer;
+  border-radius:6px;padding:2px 5px}
+label.flag:hover{background:var(--hover)}
+label.flag input{width:auto;accent-color:var(--accent)}
+#compiled{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--muted);word-break:break-all}
+.errline{color:var(--err);font-size:12px;font-family:ui-monospace,Consolas,monospace;word-break:break-word;min-height:16px}
+textarea{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.5;resize:vertical}
+#test{min-height:110px}
+#hl{min-height:70px;max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:9px;
+  background:var(--code-bg);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.55;
+  white-space:pre-wrap;word-break:break-word;user-select:text}
+mark.hit{background:var(--hit);color:inherit;border-radius:3px;padding:0 1px;box-shadow:0 0 0 1px var(--accent) inset}
+mark.hit.alt{background:var(--hit2)}
+.zero{display:inline-block;width:0;border-left:2px solid var(--accent);height:1em;vertical-align:-2px}
+#repl-out{min-height:56px;max-height:160px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:9px;
+  background:var(--code-bg);font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.55;
+  white-space:pre-wrap;word-break:break-word;user-select:text}
+.grid{display:flex;gap:12px;flex-wrap:wrap}
+.grid>section{flex:1 1 250px;min-width:230px;display:flex;flex-direction:column}
+#matches{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;max-height:300px;overflow:auto}
+#matches li{border:1px solid var(--border);border-radius:8px;padding:7px 9px;background:var(--panel)}
+#matches .m-h{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:11px;color:var(--muted)}
+#matches .m-h b{color:var(--fg);font-size:12px}
+#matches .m-h .warn{color:var(--warn)}
+#matches code{display:block;font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(--code-bg);
+  border-radius:5px;padding:3px 6px;margin-top:4px;word-break:break-all;user-select:text}
+.grp{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.grp span{font-family:ui-monospace,Consolas,monospace;font-size:11px;border:1px solid var(--border);border-radius:999px;padding:1px 7px}
+.grp span.named{border-color:var(--accent);color:var(--accent)}
+.stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.badge{padding:2px 9px;border-radius:999px;border:1px solid var(--border);background:var(--panel);font-size:11px;font-weight:600}
+.badge.ok{border-color:var(--ok);color:var(--ok)}
+.badge.err{border-color:var(--err);color:var(--err)}
+details{border:1px solid var(--border);border-radius:var(--radius);padding:0 11px;background:var(--panel)}
+details[open]{padding-bottom:10px}
+summary{cursor:pointer;padding:9px 0;font-weight:600;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary:before{content:"▸ ";color:var(--muted)}
+details[open]>summary:before{content:"▾ "}
+.cheat{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:4px 14px;font-size:12px}
+.cheat div{display:flex;gap:8px;align-items:baseline;border-bottom:1px dashed var(--border);padding:3px 0}
+.cheat code{font-family:ui-monospace,Consolas,monospace;color:var(--accent);white-space:nowrap}
+.cheat span{color:var(--muted)}
+#toast{position:fixed;left:50%;bottom:44px;transform:translateX(-50%);background:var(--accent);color:#fff;
+  padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;opacity:0;pointer-events:none}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <h1>Regex Tester</h1>
+  <span class="muted">live matches · groups · replace preview</span>
+  <span class="spacer"></span>
+  <div class="row hbtns">
+    <button class="btn" id="btn-sample" type="button">Sample</button>
+    <button class="btn" id="btn-copy-m" type="button">Copy matches</button>
+    <button class="btn" id="btn-copy-r" type="button">Copy replaced</button>
+    <button class="btn" id="btn-clear" type="button" aria-label="Clear pattern, replacement and test text">Clear</button>
+  </div>
+</header>
+<main>
+  <section aria-labelledby="h-pattern">
+    <h2 id="h-pattern">Pattern</h2>
+    <div class="pattern-row">
+      <span class="delim" aria-hidden="true">/</span>
+      <input type="text" id="pattern" spellcheck="false" autocomplete="off" aria-label="Regular expression pattern"
+        placeholder="\b(?&lt;year&gt;\d{4})-(\d{2})-(\d{2})\b">
+      <span class="delim" aria-hidden="true">/</span>
+      <fieldset><legend>Flags</legend><div class="row" id="flags" style="gap:4px"></div></fieldset>
+    </div>
+    <div class="row" style="margin-top:6px;justify-content:space-between">
+      <span id="compiled" aria-live="polite"></span>
+      <span class="muted" style="font-size:11px">backslashes are literal — type \d, not \\d</span>
+    </div>
+    <div class="errline" id="error" role="status" aria-live="polite"></div>
+  </section>
+
+  <div class="grid">
+    <section aria-labelledby="h-test">
+      <h2 id="h-test">Test string</h2>
+      <textarea id="test" spellcheck="false" aria-label="Test string"
+        placeholder="Type or paste the text to match against…"></textarea>
+      <h2 style="margin-top:8px">Highlight
+        <span class="badge" id="count-badge">0 matches</span>
+        <label class="muted" style="text-transform:none;font-size:11px"><input type="checkbox" id="opt-alt" style="width:auto;accent-color:var(--accent)"> uniform colour for every match</label>
+      </h2>
+      <div id="hl" tabindex="0" aria-label="Highlighted matches"></div>
+    </section>
+    <section aria-labelledby="h-matches">
+      <h2 id="h-matches">Matches <span class="muted" id="match-meta"></span></h2>
+      <ul id="matches" aria-label="Match list"></ul>
+    </section>
+  </div>
+
+  <section aria-labelledby="h-repl">
+    <h2 id="h-repl">Replacement preview <span class="muted" style="text-transform:none;letter-spacing:0;font-size:11px">$1, $&lt;name&gt;, $$ supported by String.replace</span>
+      <button class="btn" id="btn-addg" type="button" hidden>Enable g flag</button></h2>
+    <input type="text" id="repl" spellcheck="false" autocomplete="off" aria-label="Replacement string"
+      placeholder="$<year>/$2/$3 — try $1-$2-$3">
+    <div id="repl-out" class="muted" tabindex="0" aria-label="Replacement result" style="margin-top:8px"></div>
+  </section>
+
+  <details id="cheat">
+    <summary>Regex cheat sheet</summary>
+    <div class="cheat">
+      <div><code>\d \D</code><span>digit / not a digit</span></div>
+      <div><code>\w \W</code><span>word char (a-z0-9_) / not</span></div>
+      <div><code>\s \S</code><span>whitespace / not</span></div>
+      <div><code>. [abc]</code><span>any char except newline / char class</span></div>
+      <div><code>[^abc]</code><span>negated char class</span></div>
+      <div><code>a|b</code><span>alternation</span></div>
+      <div><code>( ) (?: )</code><span>capturing group / non-capturing</span></div>
+      <div><code>(?&lt;name&gt;…)</code><span>named capture group</span></div>
+      <div><code>* + ? {n,m}</code><span>0+, 1+, 0-1, exact or range</span></div>
+      <div><code>*? +?</code><span>lazy (as few as possible)</span></div>
+      <div><code>^ $</code><span>start / end (line with m flag)</span></div>
+      <div><code>\b \B</code><span>word boundary / not</span></div>
+      <div><code>(?=…)</code><span>positive lookahead</span></div>
+      <div><code>(?!…)</code><span>negative lookahead</span></div>
+      <div><code>\1 \k&lt;name&gt;</code><span>backreference inside the pattern</span></div>
+      <div><code>g</code><span>find every match, not just the first</span></div>
+      <div><code>i</code><span>case-insensitive</span></div>
+      <div><code>m</code><span>^ and $ match each line</span></div>
+      <div><code>s</code><span>dot also matches newline</span></div>
+      <div><code>u</code><span>unicode mode, \p{…} properties</span></div>
+      <div><code>y</code><span>sticky — must match at lastIndex</span></div>
+    </div>
+  </details>
+</main>
+<footer>
+  <span class="muted" id="foot-note">Runs offline. Data stays on this device.</span>
+  <span class="muted">Ctrl+Alt+M copy matches · Ctrl+Alt+R copy replaced · Ctrl+Alt+T sample.</span>
+</footer>
+<div id="toast" role="status" aria-live="polite"></div>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-regex-tester-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-regex-tester-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+/* ---------- Tool logic ---------- */
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var patEl=$("pattern"),testEl=$("test"),replEl=$("repl"),hlEl=$("hl"),
+      listEl=$("matches"),errEl=$("error"),compiledEl=$("compiled"),countBadge=$("count-badge"),
+      matchMeta=$("match-meta"),replOut=$("repl-out"),flagsBox=$("flags"),toastEl=$("toast"),
+      addG=$("btn-addg"),optAlt=$("opt-alt");
+  function el(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=text;return n;}
+  var toastTimer=null;
+  function showToast(m){toastEl.textContent=m;toastEl.classList.add("show");
+    if(toastTimer)clearTimeout(toastTimer);toastTimer=setTimeout(function(){toastEl.classList.remove("show");},1300);}
+
+  var FLAGS=["g","i","m","s","u","y"];
+  var MAX_MATCHES=2000;      /* runaway-match guard */
+  var MAX_LIST=150;          /* rendered match cards */
+  var MAX_HL=60000;          /* highlight input size guard */
+  var savedFlags=store.get("flags",null);
+  var flags0=savedFlags&&typeof savedFlags==="object"?savedFlags:{g:true};
+  var state={flags:{},matches:[],truncated:false,re:null};
+
+  /* ---------- flag checkboxes ---------- */
+  FLAGS.forEach(function(f){
+    var lab=el("label","flag");
+    var cb=document.createElement("input");
+    cb.type="checkbox";cb.id="flag-"+f;
+    cb.checked=flags0[f]===true;
+    state.flags[f]=flags0[f]===true;
+    cb.setAttribute("aria-label","Flag "+f);
+    lab.appendChild(cb);lab.appendChild(document.createTextNode(f));
+    flagsBox.appendChild(lab);
+    cb.addEventListener("change",function(){
+      state.flags[f]=cb.checked;
+      store.set("flags",state.flags);
+      run();
+    });
+  });
+  function flagsString(){return FLAGS.filter(function(f){return state.flags[f];}).join("");}
+  function syncFlagsFromBoxes(){FLAGS.forEach(function(f){state.flags[f]=$("flag-"+f).checked;});}
+
+  /* ---------- compile ---------- */
+  function compile(){
+    var p=patEl.value;
+    errEl.textContent="";compiledEl.textContent="";addG.hidden=true;
+    if(!p){state.re=null;return null;}
+    try{
+      var re=new RegExp(p,flagsString());
+      state.re=re;
+      compiledEl.textContent="/"+p+"/"+flagsString();
+      return re;
+    }catch(e){
+      state.re=null;
+      var msg=e&&e.message?String(e.message):"Invalid pattern";
+      var pos=/position\s+(\d+)/i.exec(msg);
+      var nice=msg.replace(/\s*at position\s+\d+.*$/i,"");
+      errEl.textContent="Invalid pattern: "+nice+(pos?" — near character "+(+pos[1]+1)+" of the pattern":"");
+      return null;
+    }
+  }
+
+  /* ---------- matching ---------- */
+  function execAll(re,text,cap){
+    var out=[],m,guard=0,truncated=false;
+    try{re.lastIndex=0;}catch(e){}
+    while(guard++<cap*3){
+      m=re.exec(text);
+      if(m===null)break;
+      out.push(m);
+      if(out.length>=cap){truncated=true;break;}
+      if(m[0]===""){re.lastIndex++;if(re.lastIndex>text.length)break;}
+      if(!re.global&&!re.sticky)break;   /* no /g and no /y: only the first match */
+      if(m.index===re.lastIndex&&m[0]!=="")re.lastIndex++; /* safety against stalls */
+    }
+    out.truncated=truncated;
+    return out;
+  }
+
+  /* ---------- highlight: text nodes + <mark>, never innerHTML with raw input ---------- */
+  function renderHighlight(text,matches){
+    hlEl.textContent="";
+    if(!text){hlEl.appendChild(el("span","muted","(empty test string)"));return;}
+    if(text.length>MAX_HL){
+      hlEl.appendChild(el("span","muted","Test string is "+text.length.toLocaleString()+" chars — highlight is limited to the first "+MAX_HL.toLocaleString()+" for responsiveness."));
+      text=text.slice(0,MAX_HL);
+    }
+    if(!matches.length){hlEl.appendChild(document.createTextNode(text));return;}
+    var idx=0;
+    for(var i=0;i<matches.length;i++){
+      var m=matches[i];
+      if(m.index>idx)hlEl.appendChild(document.createTextNode(text.slice(idx,m.index)));
+      if(m[0]===""){
+        var z=el("span","zero");
+        z.title="Zero-length match at index "+m.index;
+        hlEl.appendChild(z);
+      }else{
+        var mk=el("mark","hit"+(optAlt.checked?"":(i%2?" alt":"")),text.slice(m.index,m.index+m[0].length));
+        mk.title="Match #"+(i+1)+" at "+m.index+"–"+(m.index+m[0].length);
+        hlEl.appendChild(mk);
+      }
+      idx=m.index+m[0].length;
+      if(idx>text.length)idx=text.length;
+    }
+    if(idx<text.length)hlEl.appendChild(document.createTextNode(text.slice(idx)));
+  }
+
+  /* ---------- match list with groups ---------- */
+  function renderMatches(text,matches){
+    listEl.textContent="";
+    if(!patEl.value||!text){
+      var hint=el("li");
+      hint.appendChild(el("span","muted",!patEl.value?"Enter a pattern to start.":"Add a test string to see matches."));
+      listEl.appendChild(hint);return;
+    }
+    if(!matches.length){
+      var none=el("li");
+      none.appendChild(el("span","muted","No match. Check the flags (g, i, m) and escape literal characters like . ( ) * + ?."));
+      listEl.appendChild(none);return;
+    }
+    var shown=Math.min(matches.length,MAX_LIST);
+    for(var i=0;i<shown;i++){
+      var m=matches[i];
+      var li=document.createElement("li");
+      var head=el("div","m-h");
+      head.appendChild(el("b",null,"#"+(i+1)));
+      head.appendChild(el("span",null,"index "+m.index+"–"+(m.index+m[0].length)));
+      if(m[0]==="")head.appendChild(el("span","warn","zero-length match"));
+      li.appendChild(head);
+      li.appendChild(el("code",null,m[0]===""?"(empty match)":m[0]));
+      var chips=el("div","grp");
+      for(var g=1;g<m.length;g++){
+        if(m[g]===undefined)continue;
+        chips.appendChild(el("span",null,"$"+g+" = "+(m[g]===""?"(empty)":m[g])));
+      }
+      if(m.groups){
+        Object.keys(m.groups).forEach(function(name){
+          var v=m.groups[name];
+          if(v===undefined)return;
+          chips.appendChild(el("span","named","$<"+name+"> = "+(v===""?"(empty)":v)));
+        });
+      }
+      if(m.length<=1&&!m.groups)chips.appendChild(el("span",null,"no capture groups"));
+      li.appendChild(chips);
+      listEl.appendChild(li);
+    }
+    if(matches.length>shown){
+      var more=el("li");
+      more.appendChild(el("span","muted","+ "+(matches.length-shown).toLocaleString()+" more match(es) not listed (first "+MAX_LIST+" shown)."));
+      listEl.appendChild(more);
+    }
+  }
+
+  /* ---------- replacement preview ---------- */
+  var replacedText="";
+  function renderReplacement(re,text){
+    replacedText="";
+    if(!re||!text){replOut.textContent="";replOut.className="muted";return;}
+    try{
+      var fresh=new RegExp(re.source,flagsString());   /* clone so lastIndex cannot skew results */
+      replacedText=text.replace(fresh,replEl.value);
+      replOut.className="";
+      replOut.textContent=replacedText;
+    }catch(e){
+      replOut.className="";
+      replOut.textContent="Replacement failed: "+(e&&e.message?String(e.message):e);
+    }
+  }
+
+  /* ---------- run everything ---------- */
+  function run(){
+    var re=compile();
+    var text=testEl.value;
+    state.matches=[];state.truncated=false;
+    if(!re){
+      countBadge.className="badge";countBadge.textContent="0 matches";
+      matchMeta.textContent="";
+      renderHighlight(text,[]);
+      renderMatches(text,[]);
+      renderReplacement(null,text);
+      persist();return;
+    }
+    if(!text){
+      countBadge.className="badge";countBadge.textContent="0 matches";
+      matchMeta.textContent="";
+      renderHighlight(text,[]);renderMatches(text,[]);renderReplacement(re,text);persist();return;
+    }
+    var scan=text.length>MAX_HL?text.slice(0,MAX_HL):text;
+    var matches;
+    try{matches=execAll(re,scan,MAX_MATCHES);}
+    catch(e){
+      errEl.textContent="Matching failed: "+(e&&e.message?String(e.message):e);
+      countBadge.className="badge err";countBadge.textContent="error";
+      renderHighlight(text,[]);renderMatches(text,[]);renderReplacement(re,text);persist();return;
+    }
+    state.matches=matches;state.truncated=!!matches.truncated;
+    countBadge.className="badge "+(matches.length?"ok":"");
+    countBadge.textContent=matches.length.toLocaleString()+(matches.truncated?"+":"")+" match"+(matches.length===1?"":"es");
+    var groups=matches.length?Math.max(0,matches[0].length-1):0;
+    var named=matches.length&&matches[0].groups?Object.keys(matches[0].groups).length:0;
+    matchMeta.textContent=(groups||named)?"· first match: "+groups+" numbered, "+named+" named group(s)":"· no capture groups";
+    if(!re.global&&re.source){addG.hidden=false;}else addG.hidden=true;
+    renderHighlight(scan,matches);
+    renderMatches(scan,matches);
+    renderReplacement(re,text);
+    persist();
+  }
+  function persist(){
+    var t=testEl.value;
+    store.set("pattern",patEl.value);
+    store.set("repl",replEl.value);
+    store.set("test",t.length<=20000?t:"");
+    if(!store.persistent)$("foot-note").textContent="Runs offline. Session only, not persisted.";
+  }
+
+  /* ---------- clipboard ---------- */
+  function copyText(text,label){
+    var done=false;
+    function settle(ok){if(done)return;done=true;showToast(ok?(label||"Copied"):"Copy blocked — select the text manually");}
+    if(!text){settle(false);showToast("Nothing to copy");return;}
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      try{navigator.clipboard.writeText(text).then(function(){settle(true);},legacy);return;}catch(e){}
+    }
+    legacy();
+    function legacy(){
+      var ta=el("textarea");ta.value=text;ta.setAttribute("readonly","");
+      ta.style.position="fixed";ta.style.top="0";ta.style.left="0";ta.style.opacity="0";
+      document.body.appendChild(ta);
+      var ok=false;try{ta.select();ok=document.execCommand("copy");}catch(e){ok=false;}
+      document.body.removeChild(ta);settle(ok);
+    }
+  }
+  function matchesAsText(){
+    return state.matches.map(function(m,i){
+      var line="#"+(i+1)+" @ "+m.index+": "+m[0];
+      var extra=[];
+      for(var g=1;g<m.length;g++)if(m[g]!==undefined)extra.push("$"+g+"="+m[g]);
+      if(m.groups)Object.keys(m.groups).forEach(function(k){if(m.groups[k]!==undefined)extra.push("$<"+k+">="+m.groups[k]);});
+      return extra.length?line+"\n   "+extra.join("  "):line;
+    }).join("\n");
+  }
+
+  /* ---------- wiring ---------- */
+  var deb=null;
+  function schedule(){if(deb)clearTimeout(deb);deb=setTimeout(run,120);}
+  patEl.addEventListener("input",schedule);
+  testEl.addEventListener("input",schedule);
+  replEl.addEventListener("input",schedule);
+  optAlt.addEventListener("change",function(){store.set("noalt",optAlt.checked);run();});
+  addG.addEventListener("click",function(){
+    var cb=$("flag-g");cb.checked=true;state.flags.g=true;store.set("flags",state.flags);run();
+    showToast("g flag enabled");
+  });
+  $("btn-sample").addEventListener("click",function(){
+    patEl.value="(?<year>\\d{4})-(\\d{2})-(\\d{2})";
+    testEl.value="Nucleus shipped 2024-03-17 and refreshed 2025-11-02.\nInvalid dates like 2024-13-45 still match \\d{2}.";
+    replEl.value="$<year>/$2/$3";
+    $("flag-g").checked=true;
+    FLAGS.forEach(function(f){if(f!=="g")$("flag-"+f).checked=false;});
+    syncFlagsFromBoxes();
+    store.set("flags",state.flags);
+    run();showToast("Sample loaded");patEl.focus();
+  });
+  $("btn-clear").addEventListener("click",function(){
+    patEl.value="";testEl.value="";replEl.value="";store.set("test","");store.set("pattern","");store.set("repl","");
+    run();patEl.focus();
+  });
+  $("btn-copy-m").addEventListener("click",function(){
+    copyText(state.matches.length?matchesAsText():"","Copied "+state.matches.length+" match(es)");
+  });
+  $("btn-copy-r").addEventListener("click",function(){copyText(replacedText,"Replaced text copied");});
+  $("cheat").addEventListener("toggle",function(){store.set("cheat",$("cheat").open);});
+  addEventListener("keydown",function(e){
+    if(!(e.ctrlKey&&e.altKey))return;
+    var k=e.key.toLowerCase();
+    if(k==="m"){e.preventDefault();$("btn-copy-m").click();}
+    else if(k==="r"){e.preventDefault();$("btn-copy-r").click();}
+    else if(k==="t"){e.preventDefault();$("btn-sample").click();}
+  });
+
+  /* ---------- boot ---------- */
+  var sp=store.get("pattern","");
+  var st=store.get("test","");
+  var sr=store.get("repl","");
+  if(typeof sp==="string"&&sp)patEl.value=sp;
+  if(typeof st==="string"&&st)testEl.value=st;
+  if(typeof sr==="string"&&sr)replEl.value=sr;
+  optAlt.checked=store.get("noalt",false)===true;
+  if(store.get("cheat",false)===true)$("cheat").open=true;
+  if(!store.persistent)$("foot-note").textContent="Runs offline. Session only, not persisted.";
+  if(!patEl.value&&!testEl.value){/* start empty; user presses Sample */}
+  run();
+})();
+</script>
+</body>
+</html>

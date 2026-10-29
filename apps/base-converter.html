@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<!--
+  Nucleus catalogue app: Base Converter.
+  Self-contained offline single file. Contract: apps/CATALOG.md.
+  Radix 2-36 conversion is digit-wise arbitrary precision (long multiply/divide on digit
+  arrays) - no Number/parseInt/BigInt float loss. Text<->bytes is explicit charset (UTF-8 or
+  Latin-1), never guessed. Hexdump panel renders offset/hex/ASCII gutter.
+  Logic lives in the "LOGIC" script below and exports for node testing.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Base Converter</title>
+<script type="application/nucleus+json">
+{"id":"base-converter","name":"Base Converter","cat":"Developer Tools",
+ "desc":"Convert numbers between any radix, with a hex dump view.","icon":"terminal","w":880,"h":600}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --ok:#3ecf8e; --bad:#ef6e6e;
+  --radius:10px; --font:13px;
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+  --ok:#1a8f5c; --bad:#b3403f;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:14px}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+textarea,input[type=text]{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px;width:100%}
+select{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+label{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+section{border:1px solid var(--border);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;gap:10px}
+section>h2{font-size:13px;margin:0;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#bc-out{font-size:16px;word-break:break-all;background:var(--panel);border:1px solid var(--border);
+  border-radius:8px;padding:10px;min-height:44px}
+#bc-out.err{color:var(--bad)}
+.bases{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px}
+.bases div{display:flex;gap:6px;justify-content:space-between;border:1px solid var(--border);border-radius:8px;padding:6px 8px}
+.bases b{font-weight:600;color:var(--muted)}
+pre{margin:0;overflow:auto;background:var(--panel);border:1px solid var(--border);border-radius:8px;
+  padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.45}
+textarea{resize:vertical;min-height:64px}
+fieldset{border:1px solid var(--border);border-radius:8px;padding:8px 10px;display:flex;gap:12px;flex-wrap:wrap}
+legend{padding:0 4px;color:var(--muted)}
+.status{font-size:12px;min-height:16px}
+.status.err{color:var(--bad)}
+.status.ok{color:var(--ok)}
+input[type=number]{width:78px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px}
+@media (max-width:560px){#bc-out{font-size:13px}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header><h1>Base Converter</h1><span class="muted">Radix 2&ndash;36, arbitrary precision, offline</span></header>
+<main>
+<section aria-labelledby="h-num">
+  <h2 id="h-num">Number conversion</h2>
+  <label for="bc-in">Number (source radix)
+    <input type="text" id="bc-in" spellcheck="false" autocomplete="off" value="1048576.5"
+      aria-describedby="bc-in-hint">
+  </label>
+  <p id="bc-in-hint" class="muted">Digits <span class="mono">0&ndash;9a&ndash;z</span>, one optional <span class="mono">+</span>/<span class="mono">-</span> sign,
+    one <span class="mono">.</span> point, <span class="mono">_</span> digit separators allowed between digits. Max 4000 digits per part.</p>
+  <div class="row">
+    <label for="bc-from">From radix
+      <select id="bc-from"></select>
+    </label>
+    <label for="bc-from-custom" class="muted">custom
+      <input type="number" id="bc-from-custom" min="2" max="36" step="1" value="10" aria-label="Custom source radix, 2 to 36">
+    </label>
+    <label for="bc-to">To radix
+      <select id="bc-to"></select>
+    </label>
+    <label for="bc-to-custom" class="muted">custom
+      <input type="number" id="bc-to-custom" min="2" max="36" step="1" value="16" aria-label="Custom target radix, 2 to 36">
+    </label>
+    <label for="bc-frac">Fraction digits
+      <select id="bc-frac">
+        <option value="16">16</option><option value="32" selected>32</option>
+        <option value="64">64</option><option value="128">128</option>
+      </select>
+    </label>
+    <button class="btn" id="bc-swap" type="button">Swap radices</button>
+  </div>
+  <output id="bc-out" class="mono" aria-live="polite"></output>
+  <div class="status" id="bc-note" aria-live="polite"></div>
+  <div class="bases" id="bc-bases" aria-label="Same value in other radices"></div>
+</section>
+
+<section aria-labelledby="h-text">
+  <h2 id="h-text">Text &harr; bytes (explicit charset)</h2>
+  <div class="row">
+    <label for="tx-dir">Direction
+      <select id="tx-dir">
+        <option value="tob">Text &rarr; bytes</option>
+        <option value="tot">Bytes &rarr; text</option>
+      </select>
+    </label>
+    <fieldset><legend>Charset (never auto-detected)</legend>
+      <label><input type="radio" name="charset" value="utf-8" checked> UTF-8</label>
+      <label><input type="radio" name="charset" value="latin-1"> Latin-1 (ISO-8859-1, one byte per code unit U+0000&ndash;U+00FF)</label>
+    </fieldset>
+  </div>
+  <label for="tx-in">Input
+    <textarea id="tx-in" spellcheck="false" aria-describedby="tx-hint">Héllo — 42</textarea>
+  </label>
+  <p id="tx-hint" class="muted">For &ldquo;Bytes &rarr; text&rdquo;, enter hex pairs, <span class="mono">0x41</span>, <span class="mono">41</span> or <span class="mono">0100 0001</span>-style binary, any whitespace separated. Max 64&nbsp;KiB per conversion.</p>
+  <div class="row">
+    <button class="btn primary" id="tx-run" type="button">Convert</button>
+    <button class="btn" id="tx-copy" type="button">Copy output</button>
+  </div>
+  <label for="tx-out">Output
+    <textarea id="tx-out" readonly spellcheck="false" aria-readonly="true"></textarea>
+  </label>
+  <div class="status" id="tx-status" aria-live="polite"></div>
+</section>
+
+<section aria-labelledby="h-dump">
+  <h2 id="h-dump">Hexdump</h2>
+  <div class="row">
+    <label for="hd-src">Source
+      <select id="hd-src">
+        <option value="text">Text above (uses the chosen charset)</option>
+        <option value="hex">Hex/binary bytes above</option>
+        <option value="file">Chosen file (read locally, never uploaded)</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="hd-ascii" checked> ASCII gutter</label>
+    <label for="hd-group">Bytes per line
+      <select id="hd-group">
+        <option value="8">8</option><option value="16" selected>16</option>
+      </select>
+    </label>
+    <button class="btn primary" id="hd-run" type="button">Dump</button>
+    <button class="btn" id="hd-copy" type="button">Copy dump</button>
+    <input type="file" id="hd-file" aria-label="Choose a file to hexdump" hidden>
+  </div>
+  <pre id="hd-out" role="region" aria-label="Hexdump output" tabindex="0"></pre>
+  <div class="status" id="hd-status" aria-live="polite"></div>
+</section>
+</main>
+<footer><span class="muted" id="foot">Runs offline. No network requests, no telemetry; conversion done in this page only. Input over the stated limits is rejected with a reason, never truncated.</span></footer>
+
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-base-converter-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-base-converter-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+</script>
+
+<script>
+"use strict";
+/* ==================== LOGIC START (node-extractable; DOM-free) ==================== */
+var ALPHABET="0123456789abcdefghijklmnopqrstuvwxyz";
+var MIN_RADIX=2,MAX_RADIX=36,MAX_DIGITS=4000,MAX_BYTES=65536;
+
+function digitValue(ch){var i=ALPHABET.indexOf(ch.toLowerCase());return i;}
+function isRadix(r){return typeof r==="number"&&Number.isFinite(r)&&Math.floor(r)===r&&r>=MIN_RADIX&&r<=MAX_RADIX;}
+
+/* Strip '_' separators from a run of digit characters. Returns {s} or {error}. */
+function stripSeparators(s,radix){
+  var out="",i,c,p,n;
+  for(i=0;i<s.length;i++){
+    c=s.charAt(i);
+    if(c==="_"){
+      p=i>0?s.charAt(i-1):"";n=i+1<s.length?s.charAt(i+1):"";
+      if(digitValue(p)>=0&&digitValue(p)<radix&&digitValue(n)>=0&&digitValue(n)<radix)continue;
+      return {error:"'_' must sit between two valid digits (no leading, trailing or doubled separators)."};
+    }
+    out+=c;
+  }
+  return {s:out};
+}
+/* Parse a normalised digit run into values (MS first). Returns {digits} or {error}. */
+function digitArray(s,radix){
+  var d=[],i,v;
+  for(i=0;i<s.length;i++){
+    v=digitValue(s.charAt(i));
+    if(v<0)return {error:"Character '"+s.charAt(i)+"' is not a digit in radix "+radix+"."};
+    if(v>=radix)return {error:"Digit '"+s.charAt(i)+"' ("+v+") is too large for radix "+radix+"."};
+    d.push(v);
+  }
+  return {digits:d};
+}
+/* Parse whole input. Returns {ok,sign,intDigits,fracDigits} or {ok:false,error}. */
+function parseNumber(input,radix){
+  if(!isRadix(radix))return {ok:false,error:"Radix must be an integer from "+MIN_RADIX+" to "+MAX_RADIX+"."};
+  var s=String(input).trim();
+  if(!s)return {ok:false,error:"Enter a number."};
+  var sign=1;
+  if(s.charAt(0)==="+"||s.charAt(0)==="-"){sign=s.charAt(0)==="-"?-1:1;s=s.slice(1).trim();}
+  var parts=s.split("."),i;
+  if(parts.length>1+1)return {ok:false,error:"Only one decimal point is allowed."};
+  var intPart=parts[0]||"",fracPart=parts.length>1?parts[1]:"";
+  if(!intPart&&!fracPart)return {ok:false,error:"No digits found."};
+  var st=stripSeparators(intPart,radix);if(st.error)return {ok:false,error:st.error};
+  intPart=st.s;
+  st=stripSeparators(fracPart,radix);if(st.error)return {ok:false,error:st.error};
+  fracPart=st.s;
+  if(intPart.length>MAX_DIGITS)return {ok:false,error:"Integer part has "+intPart.length+" digits; the limit is "+MAX_DIGITS+"."};
+  if(fracPart.length>MAX_DIGITS)return {ok:false,error:"Fraction part has "+fracPart.length+" digits; the limit is "+MAX_DIGITS+"."};
+  var da=digitArray(intPart,radix);if(da.error)return {ok:false,error:da.error};
+  var fb=digitArray(fracPart,radix);if(fb.error)return {ok:false,error:fb.error};
+  return {ok:true,sign:sign,intDigits:da.digits,fracDigits:fb.digits};
+}
+/* src digit values (base `from`, MS first) -> digit values in base `to`, MS first.
+   Algorithm: out = out*from + d, done digit-wise in base `to` (no Number overflow). */
+function intToBase(src,from,to){
+  var out=[],i,j,t,carry,d;
+  for(i=0;i<src.length;i++){
+    d=src[i];carry=d;
+    for(j=0;j<out.length;j++){t=out[j]*from+carry;out[j]=t%to;carry=Math.floor(t/to);}
+    while(carry>0){out.push(carry%to);carry=Math.floor(carry/to);}
+  }
+  while(out.length>1&&out[out.length-1]===0)out.pop();
+  if(out.length===0)out=[0];
+  return out.reverse();
+}
+/* src fraction digits (base `from`) -> up to maxDigits digits in base `to`.
+   f = f*to; leading out digit taken repeatedly, in base `from` arithmetic. */
+function fracToBase(src,from,to,maxDigits){
+  var f=src.slice(),res=[],step,carry,i,t,allZero;
+  for(step=0;step<maxDigits;step++){
+    carry=0;
+    for(i=f.length-1;i>=0;i--){t=f[i]*to+carry;f[i]=t%from;carry=Math.floor(t/from);}
+    res.push(carry);
+    allZero=true;
+    for(i=0;i<f.length;i++)if(f[i]!==0){allZero=false;break;}
+    if(allZero)break;
+  }
+  return {digits:res,exact:allZero};
+}
+function render(digits){var s="",i;for(i=0;i<digits.length;i++)s+=ALPHABET.charAt(digits[i]);return s;}
+function isZeroDigits(d){var i;for(i=0;i<d.length;i++)if(d[i]!==0)return false;return true;}
+
+/* Full conversion between radices. */
+function convert(input,from,to,maxFrac){
+  var p=parseNumber(input,from);
+  if(!p.ok)return {ok:false,error:p.error};
+  if(!isRadix(to))return {ok:false,error:"Target radix must be an integer from "+MIN_RADIX+" to "+MAX_RADIX+"."};
+  var iPart=intToBase(p.intDigits,from,to);
+  var zeroInt=isZeroDigits(iPart)&&iPart.length===1&&iPart[0]===0;
+  var fPart=null,exact=true;
+  if(p.fracDigits.length&&!isZeroDigits(p.fracDigits)){
+    var f=fracToBase(p.fracDigits,from,to,maxFrac||32);
+    fPart=f.digits;exact=f.exact;
+  }
+  var out=(p.sign<0&&!(zeroInt&&!fPart)?"-":"")+render(iPart);
+  if(fPart)out+="."+render(fPart);
+  var note="";
+  if(!exact)note="Fraction is repeating or non-terminating in radix "+to+": only the first "+fPart.length+" radix-"+to+" digits are shown (remainder is not zero).";
+  return {ok:true,text:out,intDigits:iPart.length,fracDigits:fPart?fPart.length:0,exact:exact,note:note};
+}
+
+/* ---------- text <-> bytes, explicit charset ---------- */
+function utf8Encode(str){
+  if(typeof TextEncoder!=="undefined")return Array.from(new TextEncoder().encode(str));
+  var out=[],i,c;
+  for(i=0;i<str.length;i++){
+    c=str.charCodeAt(i);
+    if(c>=0xD800&&c<=0xDBFF&&i+1<str.length){
+      var lo=str.charCodeAt(i+1);
+      if(lo>=0xDC00&&lo<=0xDFFF){var cp=0x10000+((c-0xD800)<<10)+(lo-0xDC00);out.push(0xF0|((cp>>18)&0x07),0x80|((cp>>12)&0x3F),0x80|((cp>>6)&0x3F),0x80|(cp&0x3F));i++;continue;}
+    }
+    if(c<0x80)out.push(c);
+    else if(c<0x800)out.push(0xC0|(c>>6),0x80|(c&0x3F));
+    else out.push(0xE0|(c>>12),0x80|((c>>6)&0x3F),0x80|(c&0x3F));
+  }
+  return out;
+}
+function latin1Encode(str){
+  var out=[],bad=[],i,c;
+  for(i=0;i<str.length;i++){
+    c=str.charCodeAt(i);
+    if(c>0xFF){if(bad.length<8)bad.push("U+"+c.toString(16).toUpperCase());continue;}
+    out.push(c);
+  }
+  return {bytes:out,bad:bad};
+}
+/* bytes (0..255 values) -> text; charset latin-1 is 1:1, utf-8 rejects invalid sequences */
+function decodeBytes(bytes,charset){
+  var arr=(bytes instanceof Uint8Array)?bytes:new Uint8Array(bytes),i,out="";
+  if(charset==="latin-1"){for(i=0;i<arr.length;i++)out+=String.fromCharCode(arr[i]);return {ok:true,text:out};}
+  try{
+    return {ok:true,text:new TextDecoder("utf-8",{fatal:true}).decode(arr)};
+  }catch(e){
+    try{return {ok:true,text:new TextDecoder("utf-8",{fatal:false}).decode(arr),warning:"Invalid UTF-8 byte sequences were replaced with U+FFFD."};}
+    catch(e2){return {ok:false,error:"Cannot decode as UTF-8: "+String(e&&e.message||e)};}
+  }
+}
+function textToBytes(str,charset){
+  if(charset==="latin-1"){
+    var r=latin1Encode(str);
+    if(r.bad.length)return {ok:false,error:"Latin-1 holds only U+0000-U+00FF. Not encodable: "+r.bad.join(", ")+". Choose UTF-8 or remove those characters.",bytes:[]};
+    return {ok:true,bytes:r.bytes};
+  }
+  return {ok:true,bytes:utf8Encode(str)};
+}
+/* Parse a hex/binary byte listing. Accepts 41, 0x41, 01000001, and separators. */
+function parseByteList(s){
+  var toks=String(s).trim().split(/[\s,;]+/).filter(function(t){return t.length;}),out=[],i,t,b,bit,j;
+  if(out.length>MAX_BYTES)return {ok:false,error:"Too many bytes."};
+  for(i=0;i<toks.length;i++){
+    t=toks[i];
+    if(/^0x[0-9a-fA-F]{1,2}$/.test(t))b=parseInt(t.slice(2),16);
+    else if(/^[01]{2,8}$/.test(t)&&/^[01]+$/.test(t)&&t.length%8===0&&parseInt(t.slice(0,Math.min(8,t.length)),2)<256){
+      /* pure binary octet group: only unambiguous when every char is 0/1 and length is a multiple of 8 */
+      b=0;for(j=0;j<t.length;j++)b=(b<<1)|(+t.charAt(j));
+    }
+    else if(/^[0-9a-fA-F]{1,2}$/.test(t))b=parseInt(t,16);
+    else return {ok:false,error:"Token '"+t+"' is not a hex byte (00-FF), 0xNN or an 8-bit binary group."};
+    if(b>255)return {ok:false,error:"Token '"+t+"' exceeds one byte (255)."};
+    out.push(b);
+    if(out.length>MAX_BYTES)return {ok:false,error:"More than "+MAX_BYTES+" bytes; the hexdump limit is "+MAX_BYTES+" bytes per run."};
+  }
+  return {ok:true,bytes:out};
+}
+/* hexdump lines: OFFSET  NN NN ... (group) |ASCII| */
+function hexdump(bytes,opts){
+  var o=opts||{},group=o.group||16,ascii=o.ascii!==false,off=8;
+  var arr=(bytes instanceof Uint8Array)?bytes:new Uint8Array(bytes),lines=[],i,j,line,b;
+  for(i=0;i<arr.length;i+=group){
+    line=pad(i,off)+"  ";
+    for(j=0;j<group;j++){
+      if(j===group/2&&group>8)line+=" ";
+      b=i+j<arr.length?arr[i+j]:null;
+      line+=(b===null?"  ":pad2(b))+" ";
+    }
+    if(ascii){
+      var g="";
+      for(j=0;j<group&&i+j<arr.length;j++){b=arr[i+j];g+=(b>=0x20&&b<=0x7e&&b!==0x7f)?String.fromCharCode(b):".";}
+      line+="|"+g+"|";
+    }
+    lines.push(line.replace(/ +$/,""));
+  }
+  return lines;
+}
+function pad(n,w){var s=n.toString(16);while(s.length<w)s="0"+s;return s;}
+function pad2(b){var s=b.toString(16);return s.length<2?"0"+s:s;}
+/* ==================== LOGIC END ==================== */
+if(typeof module!=="undefined")module.exports={ALPHABET:ALPHABET,MAX_RADIX:MAX_RADIX,MAX_BYTES:MAX_BYTES,
+  parseNumber:parseNumber,intToBase:intToBase,fracToBase:fracToBase,convert:convert,render:render,
+  textToBytes:textToBytes,decodeBytes:decodeBytes,parseByteList:parseByteList,hexdump:hexdump,
+  stripSeparators:stripSeparators,digitValue:digitValue,isRadix:isRadix,latin1Encode:latin1Encode,utf8Encode:utf8Encode};
+</script>
+
+<script>
+"use strict";
+/* ---------- UI wiring ---------- */
+var $=function(id){return document.getElementById(id);};
+function fillRadixSelect(sel,def){
+  var common=[2,8,10,16,32,36],i,o;
+  sel.textContent="";
+  for(i=0;i<common.length;i++){o=document.createElement("option");o.value=String(common[i]);o.textContent="radix "+common[i];sel.appendChild(o);}
+  o=document.createElement("option");o.value="custom";o.textContent="custom\u2026";sel.appendChild(o);
+  sel.value=String(def);
+}
+function chosenRadix(sel,customInput){
+  if(sel.value==="custom"){var n=parseInt(customInput.value,10);return isNaN(n)?0:n;}
+  return parseInt(sel.value,10);
+}
+function setRadio(name,val){
+  var rs=document.getElementsByName(name),i;
+  for(i=0;i<rs.length;i++)if(rs[i].value===val)rs[i].checked=true;
+}
+function getRadio(name){
+  var rs=document.getElementsByName(name),i;
+  for(i=0;i<rs.length;i++)if(rs[i].checked)return rs[i].value;
+  return rs.length?rs[0].value:"";
+}
+function status(el,txt,cls){el.textContent=txt;el.className="status"+(cls?" "+cls:"");}
+function copyText(txt,el,msg){
+  if(!txt){status(el,"Nothing to copy.","err");return;}
+  if(!(navigator.clipboard&&navigator.clipboard.writeText)){status(el,"Clipboard API not available in this browser/context; select the text and copy manually.","err");return;}
+  navigator.clipboard.writeText(txt).then(function(){status(el,"Copied to clipboard.","ok");},
+    function(){status(el,"Clipboard write blocked (needs permission and a user gesture).","err");});
+}
+function refreshNumber(){
+  var from=chosenRadix($("bc-from"),$("bc-from-custom")),to=chosenRadix($("bc-to"),$("bc-to-custom"));
+  var maxF=parseInt($("bc-frac").value,10)||32;
+  var out=$("bc-out"),bases=$("bc-bases");
+  bases.textContent="";
+  var res=convert($("bc-in").value,from,to,maxF);
+  if(!res.ok){
+    out.textContent=res.error;out.className="mono err";status($("bc-note"),"","");store.set("num",null);return;
+  }
+  out.textContent=res.text;out.className="mono";
+  out.setAttribute("aria-label","Value in radix "+to+": "+res.text);
+  status($("bc-note"),res.note||("Integer digits: "+res.intDigits+(res.fracDigits?" · fraction digits shown: "+res.fracDigits+" (exact)":"")),"" );
+  var i,r,cell;
+  for(i=0;i<4;i++){
+    r=[2,8,10,16][i];
+    if(r===to)continue;
+    var rr=convert($("bc-in").value,from,r,24);
+    cell=document.createElement("div");
+    var b=document.createElement("b");b.textContent="base "+r;
+    var v=document.createElement("span");v.className="mono";v.textContent=rr.ok?rr.text:"error";
+    cell.appendChild(b);cell.appendChild(v);bases.appendChild(cell);
+  }
+}
+function refreshText(){
+  var dir=$("tx-dir").value,charset=getRadio("charset"),st=$("tx-status"),out=$("tx-out");
+  var src=$("tx-in").value;
+  if(charset==="latin-1"&&dir==="tot"&&src.length>MAX_BYTES){status(st,"Input is longer than the "+MAX_BYTES+"-byte limit.","err");return;}
+  if(dir==="tob"){
+    if(src.length>MAX_BYTES){status(st,"Text is "+src.length+" code units; the limit is "+MAX_BYTES+". Trim it or use a file source.","err");out.value="";return;}
+    var r=textToBytes(src,charset);
+    if(!r.ok){status(st,r.error,"err");out.value="";return;}
+    out.value=r.bytes.map(function(b){return pad2(b);}).join(" ");
+    status(st,r.bytes.length+" byte(s) as "+(charset==="latin-1"?"Latin-1":"UTF-8")+".","ok");
+  }else{
+    var p=parseByteList(src);
+    if(!p.ok){status(st,p.error,"err");out.value="";return;}
+    var d=decodeBytes(p.bytes,charset);
+    if(!d.ok){status(st,d.error,"err");out.value="";return;}
+    out.value=d.text;
+    status(st,p.bytes.length+" byte(s) decoded as "+(charset==="latin-1"?"Latin-1":"UTF-8")+(d.warning?" · "+d.warning:"")+".",d.warning?"err":"ok");
+  }
+}
+var dumpBytes=null; /* Uint8Array of the current dump source */
+function refreshDump(){
+  var st=$("hd-status"),out=$("hd-out"),src=$("hd-src").value,charset=getRadio("charset");
+  var group=parseInt($("hd-group").value,10)||16,ascii=$("hd-ascii").checked;
+  var bytes=null,err="";
+  if(src==="text"){
+    var r=textToBytes($("tx-in").value,charset);
+    if(!r.ok){err=r.error;}else bytes=new Uint8Array(r.bytes);
+  }else if(src==="hex"){
+    var p=parseByteList($("tx-in").value);
+    if(!p.ok){err=p.error;}else bytes=new Uint8Array(p.bytes);
+  }else{
+    bytes=dumpBytes;
+    if(!bytes)err="Choose a file first (the file picker is below the source list).";
+  }
+  if(err){out.textContent=err;status(st,err,"err");return;}
+  if(bytes.length>MAX_BYTES){
+    var msg="Hexdump limit is "+MAX_BYTES+" bytes per run; this input has "+bytes.length+". Split it or lower the range.";
+    out.textContent=msg;status(st,msg,"err");return;
+  }
+  var lines=hexdump(bytes,{group:group,ascii:ascii});
+  out.textContent=lines.length?lines.join("\n"):"(0 bytes — nothing to dump)";
+  status(st,bytes.length+" byte(s), "+lines.length+" line(s), "+group+" per row, charset "+(charset==="latin-1"?"Latin-1":"UTF-8")+" for text sources.","ok");
+}
+function savePrefs(){
+  store.set("prefs",{from:$("bc-from").value,to:$("bc-to").value,fromCustom:$("bc-from-custom").value,
+    toCustom:$("bc-to-custom").value,frac:$("bc-frac").value,dir:$("tx-dir").value,charset:getRadio("charset"),
+    group:$("hd-group").value,ascii:$("hd-ascii").checked,src:$("hd-src").value});
+}
+function loadPrefs(){
+  var p=store.get("prefs",null);if(!p)return;
+  if(p.from)$("bc-from").value=p.from;if(p.to)$("bc-to").value=p.to;
+  if(p.fromCustom)$("bc-from-custom").value=p.fromCustom;if(p.toCustom)$("bc-to-custom").value=p.toCustom;
+  if(p.frac)$("bc-frac").value=p.frac;if(p.dir)$("tx-dir").value=p.dir;
+  if(p.charset)setRadio("charset",p.charset);
+  if(p.group)$("hd-group").value=p.group;
+  if(typeof p.ascii==="boolean")$("hd-ascii").checked=p.ascii;
+  if(p.src)$("hd-src").value=p.src;
+}
+function init(){
+  fillRadixSelect($("bc-from"),10);fillRadixSelect($("bc-to"),16);
+  loadPrefs();
+  /* custom radix selects need the number inputs to be usable/reachable */
+  function syncCustom(){
+    $("bc-from-custom").disabled=$("bc-from").value!=="custom";
+    $("bc-to-custom").disabled=$("bc-to").value!=="custom";
+  }
+  syncCustom();
+  ["bc-in","bc-from","bc-to","bc-frac","bc-from-custom","bc-to-custom"].forEach(function(id){
+    $(id).addEventListener("input",function(){syncCustom();refreshNumber();savePrefs();});
+    $(id).addEventListener("change",function(){syncCustom();refreshNumber();savePrefs();});
+  });
+  $("bc-swap").addEventListener("click",function(){
+    var a=$("bc-from").value,b=$("bc-to").value,ca=$("bc-from-custom").value,cb=$("bc-to-custom").value;
+    $("bc-from").value=b;$("bc-to").value=a;$("bc-from-custom").value=cb;$("bc-to-custom").value=ca;
+    refreshNumber();savePrefs();
+  });
+  ["tx-dir","tx-in"].forEach(function(id){
+    $(id).addEventListener("input",function(){refreshText();savePrefs();});
+    $(id).addEventListener("change",function(){refreshText();savePrefs();});
+  });
+  var rs=document.getElementsByName("charset"),i;
+  for(i=0;i<rs.length;i++){rs[i].addEventListener("change",function(){refreshText();refreshDump();savePrefs();});}
+  $("tx-run").addEventListener("click",function(){refreshText();});
+  $("tx-copy").addEventListener("click",function(){copyText($("tx-out").value,$("tx-status"));});
+  $("hd-src").addEventListener("change",function(){
+    if(this.value==="file")$("hd-file").click();
+    refreshDump();savePrefs();
+  });
+  $("hd-group").addEventListener("change",function(){refreshDump();savePrefs();});
+  $("hd-ascii").addEventListener("change",function(){refreshDump();savePrefs();});
+  $("hd-run").addEventListener("click",function(){refreshDump();});
+  $("hd-copy").addEventListener("click",function(){copyText($("hd-out").value,$("hd-status"));});
+  $("hd-file").addEventListener("change",function(){
+    var f=this.files&&this.files[0];
+    if(!f){status($("hd-status"),"No file selected.","err");return;}
+    if(f.size>MAX_BYTES){dumpBytes=null;
+      status($("hd-status"),"File '"+f.name+"' is "+f.size+" bytes; the limit is "+MAX_BYTES+" (only the size was read, contents untouched).","err");
+      $("hd-out").textContent="File too large for this tool: "+f.size+" bytes.";return;}
+    var fr=new FileReader();
+    fr.onload=function(){
+      dumpBytes=new Uint8Array(fr.result);
+      status($("hd-status"),"Loaded '"+f.name+"' ("+f.size+" bytes) from this device only.","ok");
+      refreshDump();
+    };
+    fr.onerror=function(){dumpBytes=null;status($("hd-status"),"Could not read the file (permission or browser error).","err");};
+    fr.readAsArrayBuffer(f);
+  });
+  if(!store.persistent){
+    var f=$("foot");
+    f.textContent=f.textContent+" Preferences are session only, not persisted (embedded sandbox).";
+  }
+  refreshNumber();refreshText();refreshDump();
+}
+init();
+</script>
+</body>
+</html>

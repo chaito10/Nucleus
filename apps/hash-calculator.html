@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<!--
+  Nucleus catalogue app: Hash Calculator.
+  Self-contained offline single file. Contract: apps/CATALOG.md.
+  MD5 implemented in pure JS (RFC 1321). SHA-1/256/512 via WebCrypto when available.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hash Calculator</title>
+<script type="application/nucleus+json">
+{"id":"hash-calculator","name":"Hash Calculator","cat":"Security & Forensics","desc":"MD5, SHA-1/256/512 for text and files.","icon":"settings","w":680,"h":500}
+</script>
+<style>
+:root{
+  --accent:#4f8cff;
+  --bg:#0b1220; --fg:#e8edf5; --muted:#9aa6bb;
+  --panel:rgba(255,255,255,.06); --border:rgba(255,255,255,.12); --hover:rgba(255,255,255,.1);
+  --ok:#3ecf8e; --warn:#e8b34c; --bad:#ef6e6e;
+  --radius:10px; --font:13px;
+}
+html[data-theme="light"]{
+  --bg:#dfe7f3; --fg:#16202f; --muted:#5a6a82;
+  --panel:rgba(0,0,0,.05); --border:rgba(0,0,0,.14); --hover:rgba(0,0,0,.07);
+  --ok:#1a8f5c; --warn:#9a6d10; --bad:#b3403f;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--font);
+  color:var(--fg);background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex:0 0 auto;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600}
+main{flex:1;min-height:0;overflow:auto;padding:14px}
+footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+textarea,input[type=text]{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px;width:100%}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--muted)}
+.tabs{display:flex;gap:4px;margin-left:auto}
+.tab{background:transparent;border:1px solid var(--border);border-radius:999px;padding:5px 14px;cursor:pointer;color:var(--muted)}
+.tab[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+#text-input{min-height:96px;font-family:inherit;resize:vertical}
+#input-meta{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted);margin-top:4px;flex-wrap:wrap}
+.drop{border:1.5px dashed var(--border);border-radius:var(--radius);padding:18px;text-align:center;color:var(--muted);cursor:pointer}
+.drop.over{border-color:var(--accent);color:var(--fg);background:var(--hover)}
+.drop input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+#file-info{margin-top:8px;font-size:12px}
+.dtable{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+.drow{display:grid;grid-template-columns:76px minmax(0,1fr) 58px 62px;gap:8px;align-items:center;
+  background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 8px}
+.drow.match{border-color:var(--ok);box-shadow:0 0 0 1px var(--ok)}
+.dname{font-weight:600}
+.hex{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:12px;word-break:break-all;background:var(--bg);
+  border:1px solid var(--border);border-radius:6px;padding:4px 6px;min-height:24px;line-height:1.4}
+.hex.pending{color:var(--muted)}
+.badge{font-size:11px;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:2px 6px;text-align:center;white-space:nowrap}
+.badge.on{color:var(--ok);border-color:var(--ok)}
+.badge.err{color:var(--bad);border-color:var(--bad)}
+.note{font-size:12px;color:var(--muted);padding:2px 8px}
+.note.bad{color:var(--bad)}
+.ebar{height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-top:4px}
+.ebar i{display:block;height:100%;background:var(--accent);width:0;transition:width .2s}
+#cmp{max-width:420px}
+@media (max-width:560px){
+  .drow{grid-template-columns:76px 1fr auto;grid-template-areas:"n v v" "b b c"}
+  .drow .dname{grid-area:n}.drow .hex{grid-area:v}.drow .badge{grid-area:b}.drow .btn{grid-area:c}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Hash Calculator</h1>
+  <span class="muted">MD5 / SHA family, offline</span>
+  <div class="tabs" role="tablist" aria-label="Input mode">
+    <button class="tab" id="tab-text" role="tab" aria-selected="true" aria-controls="view-text">Text</button>
+    <button class="tab" id="tab-files" role="tab" aria-selected="false" aria-controls="view-files">Files</button>
+  </div>
+</header>
+<main>
+  <section id="view-text" role="tabpanel" aria-labelledby="tab-text">
+    <label for="text-input" class="muted">Text to hash (UTF-8, never leaves this device)</label>
+    <textarea id="text-input" rows="5" placeholder="Type or paste text…"></textarea>
+    <div id="input-meta"><span id="text-count">0 bytes</span><span class="muted">Live, debounced</span></div>
+  </section>
+  <section id="view-files" role="tabpanel" aria-labelledby="tab-files" hidden>
+    <div class="drop" id="drop" role="button" tabindex="0" aria-label="Choose or drop a file, up to 50 MB">
+      Drop a file here or click to choose (max 50 MB)
+      <input type="file" id="file-input" aria-label="File to hash">
+    </div>
+    <div id="file-info" class="muted">No file selected. Files are read locally in this page; nothing is uploaded.</div>
+  </section>
+  <div class="dtable" id="digests" aria-live="polite"></div>
+  <section style="margin-top:16px">
+    <div class="row">
+      <label for="cmp" class="muted">Compare digest</label>
+      <input type="text" id="cmp" spellcheck="false" placeholder="Paste a known hash (e.g. from a checksum site)">
+    </div>
+    <div class="note" id="cmp-msg" style="margin-top:4px">Paste an MD5/SHA-1/SHA-256/SHA-512 hex digest and matching rows above will be highlighted.</div>
+  </section>
+</main>
+<footer><span class="muted" id="foot-note">Runs offline. Data stays on this device.</span></footer>
+<script>
+"use strict";
+/* ---------- Nucleus host integration (do not remove) ---------- */
+(function(){
+  var params=new URLSearchParams(location.search);
+  function applyTheme(t,accent){
+    if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;
+    if(accent&&/^#[0-9a-f]{3,8}$/i.test(accent))document.documentElement.style.setProperty("--accent",accent);
+  }
+  applyTheme(params.get("n-theme"),params.get("n-accent"));
+  try{applyTheme(localStorage.getItem("nucleus-app-theme"),localStorage.getItem("nucleus-app-accent"));}catch(e){}
+  addEventListener("message",function(e){
+    var d=e.data;
+    if(d&&d.source==="nucleus-host"&&d.type==="theme"){
+      applyTheme(d.theme,d.accent);
+      try{localStorage.setItem("nucleus-app-theme",d.theme);localStorage.setItem("nucleus-app-accent",d.accent||"");}catch(err){}
+    }});
+  try{parent.postMessage({source:"nucleus-catalog",type:"ready"},"*");}catch(e){}
+})();
+/* ---------- Persistent state helper (in-memory fallback when sandboxed) ---------- */
+var store=(function(){
+  var mem={},ok=true;
+  try{localStorage.setItem("__probe__","1");localStorage.removeItem("__probe__");}catch(e){ok=false;}
+  return{
+    persistent:ok,
+    get:function(k,f){try{var v=localStorage.getItem("catapp-hash-calculator-"+k);return v==null?f:JSON.parse(v);}catch(e){return mem[k]!==undefined?mem[k]:f;}},
+    set:function(k,v){mem[k]=v;if(ok){try{localStorage.setItem("catapp-hash-calculator-"+k,JSON.stringify(v));}catch(e){}}}
+  };
+})();
+/* ---------- MD5, pure JS per RFC 1321 ---------- */
+var md5=(function(){
+  var S=[7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,
+         5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,
+         4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,
+         6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21];
+  var K=[];for(var i=0;i<64;i++)K.push(Math.floor(Math.abs(Math.sin(i+1))*4294967296)>>>0);
+  function hex32(n){var s="",j;for(j=0;j<4;j++)s+=("0"+((n>>>(j*8))&255).toString(16)).slice(-2);return s;}
+  return function(u8){
+    var n=u8.length,blocks=Math.floor((n+8)/64)+1,bytes=blocks*64,j,k;
+    var buf=new Uint8Array(bytes);buf.set(u8);buf[n]=0x80;
+    var bitLo=((n*8)%4294967296)>>>0;          /* low 32 bits of bit length */
+    var bitHi=Math.floor(n*8/4294967296)>>>0;  /* high 32 bits */
+    var dv=new DataView(buf.buffer);
+    dv.setUint32(bytes-8,bitLo,true);dv.setUint32(bytes-4,bitHi,true);
+    var a0=0x67452301,b0=0xefcdab89,c0=0x98badcfe,d0=0x10325476;
+    var M=new Int32Array(16);
+    for(k=0;k<blocks;k++){
+      var base=k*64;
+      for(j=0;j<16;j++)M[j]=dv.getUint32(base+j*4,true);
+      var A=a0,B=b0,C=c0,D=d0;
+      for(j=0;j<64;j++){
+        var F,g,amt;
+        if(j<16){F=(B&C)|(~B&D);g=j;amt=S[j];}
+        else if(j<32){F=(B&D)|(C&~D);g=(5*j+1)%16;amt=S[j];}
+        else if(j<48){F=B^C^D;g=(3*j+5)%16;amt=S[j];}
+        else{F=C^(B|~D);g=(7*j)%16;amt=S[j];}
+        var t=(F+A+(K[j]>>>0)+(M[g]>>>0))>>>0;
+        t=((t<<amt)|(t>>>(32-amt)))>>>0;
+        A=D;D=C;C=B;B=(B+t)>>>0;
+      }
+      a0=(a0+A)>>>0;b0=(b0+B)>>>0;c0=(c0+C)>>>0;d0=(d0+D)>>>0;
+    }
+    return hex32(a0)+hex32(b0)+hex32(c0)+hex32(d0);
+  };
+})();
+/* ---------- SHA family via WebCrypto (may be absent in insecure contexts) ---------- */
+var subtle=(window.crypto&&window.crypto.subtle&&typeof window.crypto.subtle.digest==="function")?window.crypto.subtle:null;
+var ALGOS=[
+  {name:"MD5",label:"MD5",self:{length:32},impl:"pure-js"},
+  {name:"SHA-1",label:"SHA-1",crypto:"SHA-1",self:{length:40}},
+  {name:"SHA-256",label:"SHA-256",crypto:"SHA-256",self:{length:64}},
+  {name:"SHA-512",label:"SHA-512",crypto:"SHA-512",self:{length:128}}
+];
+/* ---------- UI ---------- */
+var els={},token=0,activeTab="text";
+function el(id){return document.getElementById(id);}
+function setTab(t){
+  activeTab=t;
+  el("tab-text").setAttribute("aria-selected",t==="text");
+  el("tab-files").setAttribute("aria-selected",t==="files");
+  el("view-text").hidden=t!=="text";
+  el("view-files").hidden=t!=="files";
+  if(t==="files"&&!els.loadedFile)clearRows();
+}
+function clearRows(){
+  ALGOS.forEach(function(a){if(els[a.name])render(a.name,"","—","");});
+}
+function buildRows(){
+  var box=el("digests");box.textContent="";
+  ALGOS.forEach(function(a){
+    var row=document.createElement("div");row.className="drow";row.dataset.name=a.name;
+    var nm=document.createElement("span");nm.className="dname";nm.textContent=a.label;
+    var hx=document.createElement("code");hx.className="hex";
+    var badge=document.createElement("span");badge.className="badge";badge.textContent="—";
+    var cp=document.createElement("button");cp.className="btn";cp.textContent="Copy";
+    cp.setAttribute("aria-label","Copy "+a.label+" digest");cp.disabled=true;
+    cp.addEventListener("click",function(){copyText(hx.textContent,cp);});
+    row.appendChild(nm);row.appendChild(hx);row.appendChild(badge);row.appendChild(cp);
+    box.appendChild(row);
+    var note=document.createElement("div");note.className="note";
+    if(!a.crypto&&!subtle){note.textContent="";/* md5 always works */}
+    if(a.crypto&&!subtle){
+      note.textContent=a.label+" unavailable in this context — WebCrypto needs a secure origin (https or localhost). MD5 below/above still works.";
+      note.id="note-"+a.name;
+      row.replaceChild(note,hx);
+      var p=document.createElement("code");p.className="hex";p.textContent="";p.style.display="none";
+      note.after(p);
+    }
+    els[a.name]={row:row,hex:a.crypto&&!subtle?p:hx,badge:badge,copy:cp,def:a};
+  });
+  if(!subtle){
+    var f=el("foot-note");
+    f.textContent="Runs offline. SHA-1/256/512 are unavailable here (file:// is not a secure origin in this browser); MD5 still works. Serve over https or localhost to enable WebCrypto.";
+  }
+}
+function render(name,value,status,cls){
+  var e=els[name];if(!e)return;
+  e.hex.textContent=value||"";
+  e.badge.textContent=status;
+  e.badge.className="badge"+(cls?" "+cls:"");
+  e.copy.disabled=!value;
+  highlight();
+}
+function hexToBytes(hex){var n=Math.floor(hex.length/2),u=new Uint8Array(n);
+  for(var i=0;i<n;i++)u[i]=parseInt(hex.substr(i*2,2),16);return u;}
+function update(input,infoText,entropyBytes){
+  var my=++token;
+  var bytes=(typeof input==="string")?new TextEncoder().encode(input):input;
+  if(infoText!==undefined)els.info(infoText,entropyBytes,bytes.length);
+  render("MD5",md5(bytes),"","on");
+  ALGOS.forEach(function(a){
+    if(!a.crypto)return;
+    if(!subtle){render(a.name,"","N/A","err");return;}
+    subtle.digest(a.crypto,bytes.slice(0)).then(function(buf){
+      if(my!==token)return;
+      var hex=[].map.call(new Uint8Array(buf),function(b){return("0"+b.toString(16)).slice(-2);}).join("");
+      var selfMatch=hex.length===a.self.length;
+      render(a.name,hex,selfMatch?"ok":"bad len",selfMatch?"on":"err");
+    }).catch(function(err){
+      if(my!==token)return;
+      render(a.name,"","error","err");
+    });
+  });
+}
+/* compare mode */
+function normalizeCmp(s){return (s||"").trim().toLowerCase().replace(/[^0-9a-f]/g,"");}
+function highlight(){
+  var v=normalizeCmp(els.cmp.value);
+  var any=false;
+  ALGOS.forEach(function(a){
+    var e=els[a.name];if(!e)return;
+    var h=e.hex.textContent.trim();
+    var m=v.length>0&&h.length===v.length&&h.toLowerCase()===v;
+    e.row.classList.toggle("match",m);
+    if(m)any=true;
+  });
+  var msg=el("cmp-msg");
+  if(!v)msg.textContent="Paste an MD5/SHA-1/SHA-256/SHA-512 hex digest and matching rows above will be highlighted.";
+  else if(any){msg.textContent="Match found — highlighted rows equal the pasted digest.";msg.className="note";}
+  else{msg.textContent="No match for the pasted digest yet.";msg.className="note";}
+}
+/* clipboard helper */
+function copyText(t,btn){
+  if(!t)return;
+  function done(){var old=btn?btn.textContent:null;if(btn){btn.textContent="Copied";setTimeout(function(){btn.textContent=old;},900);}}
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(done,function(){legacy(t,done);});}
+  else legacy(t,done);
+}
+function legacy(t,done){try{var ta=document.createElement("textarea");ta.value=t;ta.style.position="fixed";ta.style.opacity="0";
+  document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);done();}catch(e){}}
+/* wiring */
+function init(){
+  buildRows();
+  els.cmp=el("cmp");
+  els.info=function(txt,entBytes,len){
+    var fi=el("file-info");
+    if(activeTab==="files"&&txt!==undefined){
+      fi.textContent=txt;
+      if(typeof entBytes!=="number"||entBytes===null){var eb=el("ebar");if(eb)eb.style.width="0";var et=el("etext");if(et)et.textContent="";}
+      else{var h=shannon(entBytes);var eb=el("ebar"),et=el("etext");
+        if(eb)eb.style.width=(h/8*100).toFixed(1)+"%";
+        if(et)et.textContent="Entropy estimate: "+h.toFixed(2)+" bits/byte (0 = uniform, 8 = random)";}
+    }
+  };
+  var deb;
+  el("text-input").addEventListener("input",function(){
+    clearTimeout(deb);
+    var v=this.value;
+    el("text-count").textContent=new TextEncoder().encode(v).length+" bytes";
+    deb=setTimeout(function(){if(activeTab==="text")update(v||"",undefined);},250);
+  });
+  el("tab-text").addEventListener("click",function(){setTab("text");refreshActive();});
+  el("tab-files").addEventListener("click",function(){setTab("files");refreshActive();});
+  var drop=el("drop"),fi=el("file-input");
+  drop.addEventListener("click",function(){fi.click();});
+  drop.addEventListener("keydown",function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();fi.click();}});
+  ["dragover","dragenter"].forEach(function(t){drop.addEventListener(t,function(e){e.preventDefault();drop.classList.add("over");});});
+  ["dragleave","drop"].forEach(function(t){drop.addEventListener(t,function(e){e.preventDefault();drop.classList.remove("over");});});
+  drop.addEventListener("drop",function(e){var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];if(f)loadFile(f);});
+  fi.addEventListener("change",function(){if(this.files&&this.files[0])loadFile(this.files[0]);});
+  els.cmp.addEventListener("input",highlight);
+  refreshActive();
+}
+function refreshActive(){
+  if(activeTab==="text")update(el("text-input").value||"",undefined);
+}
+function shannon(u8){
+  var c=new Uint32Array(256),n=u8.length,i,h=0;
+  for(i=0;i<n;i++)c[u8[i]]++;
+  for(i=0;i<256;i++)if(c[i]){var p=c[i]/n;h-=p*Math.log2(p);}
+  return h;
+}
+var MAXB=50*1024*1024;
+function loadFile(f){
+  el("file-info").textContent="Reading "+f.name+" ("+fmtSize(f.size)+")…";
+  if(f.size>MAXB){
+    el("file-info").textContent=f.name+" is "+fmtSize(f.size)+" — over the 50 MB limit. Hash a smaller file or use a native tool.";
+    return;
+  }
+  var my=++token;
+  f.arrayBuffer().then(function(buf){
+    if(my!==token)return;
+    els.loadedFile=true;
+    var u8=new Uint8Array(buf);
+    update(u8,f.name+" — "+fmtSize(f.size)+", read locally (virtual size limit 50 MB; large files are held in memory while hashing).",u8);
+  }).catch(function(){
+    el("file-info").textContent="Could not read "+f.name+".";
+  });
+}
+function fmtSize(n){
+  if(n<1024)return n+" B";
+  if(n<1048576)return (n/1024).toFixed(1)+" KiB";
+  return (n/1048576).toFixed(2)+" MiB";
+}
+init();
+/* expose md5 for node-based unit test */
+if(typeof module!=="undefined")module.exports={md5:md5};
+</script>
+</body>
+</html>
